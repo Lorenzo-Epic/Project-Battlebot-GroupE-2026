@@ -9,10 +9,10 @@ const int rotationLeft  = 10;
 const int rotationRight = 11;
 
 const int calibrationForwardLeft = 255;
-const int calibrationBackwardLeft;
+const int calibrationBackwardLeft = 255;
 
 const int calibrationForwardRight = 242;
-const int calibrationBackwardRight;
+const int calibrationBackwardRight = 220;
 
 void setup() {
   Serial.begin(9600);
@@ -39,4 +39,10 @@ void loop() {
   
 //  analogWrite(rightForward, calibrationForwardRight);
 //  digitalWrite(rightBackward, LOW);
+
+  analogWrite(leftBackward, calibrationBackwardLeft);
+  digitalWrite(leftForward, LOW);
+  
+  analogWrite(rightBackward, calibrationBackwardRight);
+  digitalWrite(rightForward, LOW);
 }
