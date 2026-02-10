@@ -14,6 +14,16 @@ const int calibrationBackwardLeft = 255;
 const int calibrationForwardRight = 242;
 const int calibrationBackwardRight = 220;
 
+// --- wheel/encoder constants ---
+const float WHEEL_DIAMETER_CM = 6.5;
+const int   SLOTS_PER_REV     = 20;   // 20 slits
+const int   EDGES_PER_SLOT    = 1;    // counting only 1->0 OR 0->1 (not both)
+const float CIRCUMFERENCE_CM  = PI * WHEEL_DIAMETER_CM;
+const float TICKS_PER_CM      = (SLOTS_PER_REV * EDGES_PER_SLOT) / CIRCUMFERENCE_CM;
+
+// noise gate (optical sensors usually clean, but this helps)
+const unsigned long EDGE_MIN_US = 200;
+
 void setup() {
   Serial.begin(9600);
 
@@ -33,16 +43,84 @@ void setup() {
   pinMode(rotationRight, INPUT_PULLUP);
 }
 
-void loop() {
-//  analogWrite(leftForward, calibrationForwardLeft);
-//  digitalWrite(leftBackward, LOW);
-  
-//  analogWrite(rightForward, calibrationForwardRight);
-//  digitalWrite(rightBackward, LOW);
+void stopMotors() {
+  analogWrite(leftBackward, 0);
+  digitalWrite(leftForward, LOW);
 
+  analogWrite(rightBackward, 0);
+  digitalWrite(rightForward, LOW);
+}
+
+void driveForward() {
+  analogWrite(leftForward, calibrationForwardLeft);
+  digitalWrite(leftBackward, LOW);
+
+  analogWrite(rightForward, calibrationForwardRight);
+  digitalWrite(rightBackward, LOW);
+}
+
+void driveBackward() {
   analogWrite(leftBackward, calibrationBackwardLeft);
   digitalWrite(leftForward, LOW);
   
   analogWrite(rightBackward, calibrationBackwardRight);
   digitalWrite(rightForward, LOW);
+}
+
+void moveForward(int lengthCm) {
+  long targetTicks = lround(lengthCm * TICKS_PER_CM);
+  if (targetTicks <= 0) return;
+
+  long leftTicks = 0;
+  long rightTicks = 0;
+
+  int lastL = digitalRead(rotationLeft);
+  int lastR = digitalRead(rotationRight);
+
+  unsigned long lastEdgeL = 0;
+  unsigned long lastEdgeR = 0;
+
+  driveForward();
+
+  // Optional: timeout so you don't deadlock forever if a sensor fails
+  unsigned long startMs = millis();
+  const unsigned long TIMEOUT_MS = 5000 + (unsigned long)lengthCm * 50; // crude but practical
+
+  while (true) {
+    int curL = digitalRead(rotationLeft);
+    int curR = digitalRead(rotationRight);
+    unsigned long nowUs = micros();
+
+    // Count falling edges (HIGH -> LOW). If your sensor is inverted, swap the condition.
+    if (lastL == HIGH && curL == LOW) {
+      if (nowUs - lastEdgeL >= EDGE_MIN_US) {
+        leftTicks++;
+        lastEdgeL = nowUs;
+        // Serial.println(leftTicks); // debug only on edge (no spam)
+      }
+    }
+
+    if (lastR == HIGH && curR == LOW) {
+      if (nowUs - lastEdgeR >= EDGE_MIN_US) {
+        rightTicks++;
+        lastEdgeR = nowUs;
+      }
+    }
+
+    lastL = curL;
+    lastR = curR;
+
+    // Stop condition: use average so one wheel not perfectly matched still works.
+    long avg = (leftTicks + rightTicks) / 2;
+    if (avg >= targetTicks) break;
+
+    if (millis() - startMs > TIMEOUT_MS) break;
+  }
+
+  stopMotors();
+}
+
+void loop() {
+  moveForward(100);   // 1 cm
+  delay(1000);
 }
