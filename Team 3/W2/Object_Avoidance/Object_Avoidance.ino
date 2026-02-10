@@ -8,6 +8,12 @@ const int rightBackward = 9;
 const int rotationLeft  = 2;
 const int rotationRight = 4;
 
+//ultrasound sensor
+const int ultrasoundTrig = 10;
+const int ultrasoundEcho = 11;
+//floats that store the duration and distance of the pulses
+float ultrasoundDuration, ultrasoundDistance;
+
 const int calibrationForwardLeft = 255;
 const int calibrationBackwardLeft = 255;
 
@@ -41,7 +47,13 @@ void setup() {
 
   pinMode(rotationLeft, INPUT_PULLUP);
   pinMode(rotationRight, INPUT_PULLUP);
+
+  pinMode(ultrasoundTrig, OUTPUT);  
+  pinMode(ultrasoundEcho, INPUT);
+
 }
+
+//Movement Functions
 
 void stopMotors() {
   analogWrite(leftBackward, 0);
@@ -125,8 +137,32 @@ void move(int lengthCm, String direction) {
   stopMotors();
 }
 
+///Sensor functions
+
+float getUltrasoundDuration() {
+  digitalWrite(ultrasoundTrig, LOW);  
+  delayMicroseconds(2);  
+  digitalWrite(ultrasoundTrig, HIGH);  
+  delayMicroseconds(10);  
+  digitalWrite(ultrasoundTrig, LOW); 
+
+  return pulseIn(ultrasoundEcho, HIGH);
+}
+
+float getUltrasoundDistance() {
+  float ultrasoundDuration = getUltrasoundDuration();
+  float ultrasoundDistance = (ultrasoundDuration*.0343)/2;  
+  Serial.print("Distance: ");  
+  Serial.println(ultrasoundDistance);  
+  return ultrasoundDistance;
+}
+
 void loop() {
-  move(100, "forward");
-  move(100, "backward");   // in cm, "forward" or "backward"
-  delay(1000);
+//  /if value greater than 1000, ignore
+///if value is 10, go into object avoidance, move around the object and continue straight(could be rotate left, forward, right, forward, right, forward, left, forward continuing
+
+  getUltrasoundDistance();
+  delay(100);  
+
+
 }
