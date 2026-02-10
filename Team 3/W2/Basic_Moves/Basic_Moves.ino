@@ -121,6 +121,6 @@ void moveForward(int lengthCm) {
 }
 
 void loop() {
-  moveForward(100);   // 1 cm
+  moveForward(100);   // in cm
   delay(1000);
 }
