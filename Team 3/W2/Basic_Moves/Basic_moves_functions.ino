@@ -6,28 +6,33 @@
 //R1 -> 10
 //R2 -> 11
 
-const int leftBackward = 3;
-const int leftForward  = 5;
-
+// motor pins
+const int leftBackward  = 3;
+const int leftForward   = 5;
 const int rightForward  = 6;
 const int rightBackward = 9;
 
-// Rotation
-const int rotationLeft  = 10;
-const int rotationRight = 11;
+// rotation sensors
+const int rotationLeft  = 2;
+const int rotationRight = 4;
 
-// Calibration values
+// calibration values
 const int calibrationForwardLeft  = 255;
 const int calibrationBackwardLeft = 255;
-
-const int calibrationForwardRight  = 242;
+const int calibrationForwardRight = 242;
 const int calibrationBackwardRight = 220;
 
-// Encoder calibration (change after tests)
-const int ticksPerMeter = 100;
-const int ticks90Turn = 30;
+// wheel and robot math
+const float wheelDiameterCm = 6.5;   // wheel diameter
+const int slotsPerRev       = 20;    // encoder slots per wheel
+const float wheelBaseCm     = 12.0;  // distance between wheels
 
-// setud
+const float wheelCircumferenceCm = PI * wheelDiameterCm;
+const float distancePerTickCm    = wheelCircumferenceCm / slotsPerRev;
+
+// encoder calibration w math
+const int ticksPerMeter = lround(100.0 / distancePerTickCm);  
+const int ticks90Turn   = lround((PI * wheelBaseCm / 4.0) / distancePerTickCm); 
 
 void setup() {
   Serial.begin(9600);
@@ -41,8 +46,6 @@ void setup() {
   pinMode(rotationRight, INPUT_PULLUP);
 }
 
-// motor helper
-
 void stopMotors() {
   digitalWrite(leftForward, LOW);
   digitalWrite(leftBackward, LOW);
@@ -50,7 +53,7 @@ void stopMotors() {
   digitalWrite(rightBackward, LOW);
 }
 
-// functions for movement
+// movement functions
 
 void moveForward1m() {
   int ticks = 0;
@@ -61,9 +64,9 @@ void moveForward1m() {
   digitalWrite(rightBackward, LOW);
 
   while (ticks < ticksPerMeter) {
-    if (digitalRead(rotationLeft) == LOW) {
+    if (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW) {
       ticks++;
-      while (digitalRead(rotationLeft) == LOW); // debounce
+      while (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW); // debounce
     }
   }
 
@@ -79,52 +82,56 @@ void moveBackward1m() {
   digitalWrite(rightForward, LOW);
 
   while (ticks < ticksPerMeter) {
-    if (digitalRead(rotationLeft) == LOW) {
+    if (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW) {
       ticks++;
-      while (digitalRead(rotationLeft) == LOW);
+      while (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW); // debounce
     }
   }
 
   stopMotors();
 }
 
-// left wheel stop, right wheel moves left
-void turnLeft90() {
+// rotation functions
+
+// spin left 90 left wheel backward, right wheel forward
+void rotateLeft90() {
   int ticks = 0;
 
-  stopMotors();
+  analogWrite(leftBackward, calibrationBackwardLeft);
+  digitalWrite(leftForward, LOW);
+
   analogWrite(rightForward, calibrationForwardRight);
   digitalWrite(rightBackward, LOW);
 
   while (ticks < ticks90Turn) {
-    if (digitalRead(rotationRight) == LOW) {
+    if (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW) {
       ticks++;
-      while (digitalRead(rotationRight) == LOW);
+      while (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW); // debounce
     }
   }
 
   stopMotors();
 }
 
-// right wheel stop left wheel moves
-void turnRight90() {
+// spin right 90 left wheel forward, right wheel backward
+void rotateRight90() {
   int ticks = 0;
 
-  stopMotors();
   analogWrite(leftForward, calibrationForwardLeft);
   digitalWrite(leftBackward, LOW);
 
+  analogWrite(rightBackward, calibrationBackwardRight);
+  digitalWrite(rightForward, LOW);
+
   while (ticks < ticks90Turn) {
-    if (digitalRead(rotationLeft) == LOW) {
+    if (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW) {
       ticks++;
-      while (digitalRead(rotationLeft) == LOW);
+      while (digitalRead(rotationLeft) == LOW || digitalRead(rotationRight) == LOW); // debounce
     }
   }
 
   stopMotors();
 }
-
-// main loop
 
 void loop() {
   moveForward1m();
@@ -133,9 +140,9 @@ void loop() {
   moveBackward1m();
   delay(500);
 
-  turnLeft90();
+  rotateLeft90();
   delay(500);
 
-  turnRight90();
-  delay(2000); // small pause before repeating
+  rotateRight90();
+  delay(2000);
 }
