@@ -67,7 +67,7 @@ void driveBackward() {
   digitalWrite(rightForward, LOW);
 }
 
-void moveForward(int lengthCm) {
+void move(int lengthCm, String direction) {
   long targetTicks = lround(lengthCm * TICKS_PER_CM);
   if (targetTicks <= 0) return;
 
@@ -80,7 +80,12 @@ void moveForward(int lengthCm) {
   unsigned long lastEdgeL = 0;
   unsigned long lastEdgeR = 0;
 
-  driveForward();
+  if (direction == "forward") {
+    driveForward();
+  } else if (direction == "backward") {
+    driveBackward();
+  }
+  
 
   // Optional: timeout so you don't deadlock forever if a sensor fails
   unsigned long startMs = millis();
@@ -110,7 +115,7 @@ void moveForward(int lengthCm) {
     lastL = curL;
     lastR = curR;
 
-    // Stop condition: use average so one wheel not perfectly matched still works.
+    // Stop condition: use average so one wheel notperfectly matched still works.
     long avg = (leftTicks + rightTicks) / 2;
     if (avg >= targetTicks) break;
 
@@ -121,6 +126,7 @@ void moveForward(int lengthCm) {
 }
 
 void loop() {
-  moveForward(100);   // in cm
+  move(100, "forward");
+  move(100, "backward");   // in cm, "forward" or "backward"
   delay(1000);
 }
