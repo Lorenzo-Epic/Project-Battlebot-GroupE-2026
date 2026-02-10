@@ -8,27 +8,35 @@ const int rightBackward = 9;
 const int rotationLeft  = 10;
 const int rotationRight = 11;
 
+const int calibrationForwardLeft = 255;
+const int calibrationBackwardLeft;
+
+const int calibrationForwardRight = 242;
+const int calibrationBackwardRight;
+
 void setup() {
-  Serial.begin(9600);          // or 115200, just match Serial Monitor
-  // while (!Serial) {}        // only needed on some boards (e.g., Leonardo/Micro)
+  Serial.begin(9600);
+
+  //A1 -> 3
+  //A2 -> 5
+  //B1 -> 6
+  //B2 -> 9
+  //R1 -> 10
+  //R2 -> 11
 
   pinMode(leftForward, OUTPUT);
   pinMode(leftBackward, OUTPUT);
   pinMode(rightForward, OUTPUT);
   pinMode(rightBackward, OUTPUT);
 
-  pinMode(rotationLeft, INPUT_PULLUP);   // common for hall/encoder switches
+  pinMode(rotationLeft, INPUT_PULLUP);
   pinMode(rotationRight, INPUT_PULLUP);
 }
 
 void loop() {
-  // If you want to print the PIN NUMBER:
-//  Serial.print("rotationLeft pin = ");/
-//  Serial.println(rotationLeft);/
-
-  // If you want to print the SENSOR STATE on that pin:
-  Serial.print("rotationLeft state = ");
-  Serial.println(digitalRead(rotationLeft));
-
-  delay(200);
+//  analogWrite(leftForward, calibrationForwardLeft);
+//  digitalWrite(leftBackward, LOW);
+  
+//  analogWrite(rightForward, calibrationForwardRight);
+//  digitalWrite(rightBackward, LOW);
 }
