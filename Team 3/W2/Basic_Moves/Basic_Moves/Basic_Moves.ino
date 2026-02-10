@@ -21,6 +21,12 @@ const int   EDGES_PER_SLOT    = 1;    // counting only 1->0 OR 0->1 (not both)
 const float CIRCUMFERENCE_CM  = PI * WHEEL_DIAMETER_CM;
 const float TICKS_PER_CM      = (SLOTS_PER_REV * EDGES_PER_SLOT) / CIRCUMFERENCE_CM;
 
+// --- turn calibration (in-place) ---
+// You said: 90° turn ~= 2.5 "1-pulses" per wheel with 1× counting.
+// With 2× (both edges), that's 5 ticks.
+const float TURN_TICKS_90      = 5.0;
+const float TURN_TICKS_PER_DEG = TURN_TICKS_90 / 90.0;
+
 // noise gate (optical sensors usually clean, but this helps)
 const unsigned long EDGE_MIN_US = 200;
 
@@ -44,11 +50,15 @@ void setup() {
 }
 
 void stopMotors() {
+  analogWrite(leftForward, 0);
   analogWrite(leftBackward, 0);
-  digitalWrite(leftForward, LOW);
-
+  analogWrite(rightForward, 0);
   analogWrite(rightBackward, 0);
+
+  digitalWrite(leftForward, LOW);
+  digitalWrite(leftBackward, LOW);
   digitalWrite(rightForward, LOW);
+  digitalWrite(rightBackward, LOW);
 }
 
 void driveForward() {
@@ -67,9 +77,35 @@ void driveBackward() {
   digitalWrite(rightForward, LOW);
 }
 
-void move(int lengthCm, String direction) {
-  long targetTicks = lround(lengthCm * TICKS_PER_CM);
-  if (targetTicks <= 0) return;
+void driveLeftTurn() {
+  // rotate left in place: left wheel backward, right wheel forward
+  analogWrite(leftBackward, calibrationBackwardLeft);
+  digitalWrite(leftForward, LOW);
+
+  analogWrite(rightForward, calibrationForwardRight);
+  digitalWrite(rightBackward, LOW);
+}
+
+void driveRightTurn() {
+  // rotate right in place: left wheel forward, right wheel backward
+  analogWrite(leftForward, calibrationForwardLeft);
+  digitalWrite(leftBackward, LOW);
+
+  analogWrite(rightBackward, calibrationBackwardRight);
+  digitalWrite(rightForward, LOW);
+}
+
+void move(int amount, String direction) {
+  bool isTurn = (direction == "left" || direction == "right");
+  if (amount <= 0) return;
+
+  // amount = cm for forward/backward, degrees for left/right
+  float targetTicksF = isTurn
+    ? (amount * TURN_TICKS_PER_DEG)
+    : (amount * TICKS_PER_CM);
+
+  long targetTicks = (long)lround(targetTicksF);
+  if (targetTicks <= 0) targetTicks = 1;
 
   long leftTicks = 0;
   long rightTicks = 0;
@@ -80,32 +116,28 @@ void move(int lengthCm, String direction) {
   unsigned long lastEdgeL = 0;
   unsigned long lastEdgeR = 0;
 
-  if (direction == "forward") {
-    driveForward();
-  } else if (direction == "backward") {
-    driveBackward();
-  }
-  
+  if (direction == "forward")       driveForward();
+  else if (direction == "backward") driveBackward();
+  else if (direction == "left")     driveLeftTurn();
+  else if (direction == "right")    driveRightTurn();
+  else return; // invalid string
 
-  // Optional: timeout so you don't deadlock forever if a sensor fails
   unsigned long startMs = millis();
-  const unsigned long TIMEOUT_MS = 5000 + (unsigned long)lengthCm * 50; // crude but practical
+  const unsigned long TIMEOUT_MS = 5000UL + (unsigned long)amount * (isTurn ? 40UL : 50UL);
 
   while (true) {
     int curL = digitalRead(rotationLeft);
     int curR = digitalRead(rotationRight);
     unsigned long nowUs = micros();
 
-    // Count falling edges (HIGH -> LOW). If your sensor is inverted, swap the condition.
-    if (lastL == HIGH && curL == LOW) {
+    // 2× counting: tick on ANY state change
+    if (curL != lastL) {
       if (nowUs - lastEdgeL >= EDGE_MIN_US) {
         leftTicks++;
         lastEdgeL = nowUs;
-        // Serial.println(leftTicks); // debug only on edge (no spam)
       }
     }
-
-    if (lastR == HIGH && curR == LOW) {
+    if (curR != lastR) {
       if (nowUs - lastEdgeR >= EDGE_MIN_US) {
         rightTicks++;
         lastEdgeR = nowUs;
@@ -115,9 +147,13 @@ void move(int lengthCm, String direction) {
     lastL = curL;
     lastR = curR;
 
-    // Stop condition: use average so one wheel notperfectly matched still works.
-    long avg = (leftTicks + rightTicks) / 2;
-    if (avg >= targetTicks) break;
+    if (!isTurn) {
+      long avg = (leftTicks + rightTicks) / 2;
+      if (avg >= targetTicks) break;
+    } else {
+      // turning: require BOTH wheels to hit target
+      if (leftTicks >= targetTicks && rightTicks >= targetTicks) break;
+    }
 
     if (millis() - startMs > TIMEOUT_MS) break;
   }
@@ -126,7 +162,7 @@ void move(int lengthCm, String direction) {
 }
 
 void loop() {
-  move(100, "forward");
-  move(100, "backward");   // in cm, "forward" or "backward"
-  delay(1000);
+  move(90, "left");      // 90 degrees left
+  delay(500);
+  move(90, "right");     // 90 degrees right  
 }
