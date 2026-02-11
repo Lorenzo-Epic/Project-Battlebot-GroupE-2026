@@ -1,8 +1,8 @@
 // constants won't change. They're used here to set pin numbers:
-const int buttonPin1 = 2;     // the number of the pushbutton pin
-const int buttonPin2 = 4;
-const int buttonPin3 = 7;
-const int ledPin =  13;      // the number of the LED pin
+const int BUTTON_PIN_1 = 2;     // the number of the pushbutton pin
+const int BUTTON_PIN_2 = 4;
+const int BUTTON_PIN_3 = 7;
+const int LED_PIN =  13;      // the number of the LED pin
 
 // variables will change:
 int buttonState1 = 0;         // variable for reading the pushbutton status
@@ -17,18 +17,18 @@ bool state;
 
 void setup() {
   // initialize the LED pin as an output:
-  pinMode(ledPin, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   // initialize the pushbutton pin as an input:
-  pinMode(buttonPin1, INPUT);
-  pinMode(buttonPin2, INPUT);
-  pinMode(buttonPin3, INPUT);
+  pinMode(BUTTON_PIN_1, INPUT);
+  pinMode(BUTTON_PIN_2, INPUT);
+  pinMode(BUTTON_PIN_3, INPUT);
 }
 
 void loop() {
   // read the state of the pushbutton value:
-  buttonState1 = digitalRead(buttonPin1);
-  buttonState2 = digitalRead(buttonPin2);
-  buttonState3 = digitalRead(buttonPin3);
+  buttonState1 = digitalRead(BUTTON_PIN_1);
+  buttonState2 = digitalRead(BUTTON_PIN_2);
+  buttonState3 = digitalRead(BUTTON_PIN_3);
 
   // check if the pushbutton is pressed. If it is, the buttonState is HIGH:
   if (buttonState1 == LOW) {
@@ -42,7 +42,7 @@ void loop() {
 
   if (fastBlink == true) {
     blink(500); 
-  } else if (slowBlink == true) {
+  } else {
     blink(2000);
   }
   
@@ -53,6 +53,6 @@ void blink (int INTERVAL) {
     timerOne = millis() + INTERVAL;
 
     state = !state;
-    digitalWrite(ledPin, state);
+    digitalWrite(LED_PIN, state);
   }
 }

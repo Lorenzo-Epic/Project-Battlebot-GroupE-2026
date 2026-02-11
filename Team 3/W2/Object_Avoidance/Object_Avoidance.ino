@@ -1,4 +1,4 @@
-const int leftBackward = 3;
+const int leftBackward = 10;
 const int leftForward  = 5;
 
 const int rightForward  = 6;
@@ -6,11 +6,11 @@ const int rightBackward = 9;
 
 // rotation sensors (pins)
 const int rotationLeft  = 2;
-const int rotationRight = 4;
+const int rotationRight = 3;
 
 //ultrasound sensor
-const int ultrasoundTrig = 10;
-const int ultrasoundEcho = 11;
+const int ultrasoundTrig = 12;
+const int ultrasoundEcho = 13;
 //floats that store the duration and distance of the pulses
 float ultrasoundDuration, ultrasoundDistance;
 
@@ -164,5 +164,6 @@ void loop() {
   getUltrasoundDistance();
   delay(100);  
 
+  move(100, "forward");
 
 }

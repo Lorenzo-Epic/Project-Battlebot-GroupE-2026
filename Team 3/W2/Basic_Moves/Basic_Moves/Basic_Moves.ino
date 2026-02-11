@@ -1,44 +1,189 @@
-const int leftBackward = 3;
-const int leftForward  = 5;
+#include <Arduino.h>
+#include <string.h>
 
-const int rightForward  = 6;
-const int rightBackward = 9;
+// -------------------- Pins --------------------
+// NOTE: Nano PWM pins are 3,5,6,9,10,11. Pin 10 is PWM-capable. :contentReference[oaicite:2]{index=2}
+const uint8_t leftBackward  = 10;  // PWM
+const uint8_t leftForward   = 5;   // PWM
+const uint8_t rightForward  = 6;   // PWM
+const uint8_t rightBackward = 9;   // PWM
 
-// rotation sensors (pins)
-const int rotationLeft  = 2;
-const int rotationRight = 4;
+// Rotation sensors (must be interrupt pins for attachInterrupt on ATmega328P)
+const uint8_t rotationLeft  = 2;   // INT0 :contentReference[oaicite:3]{index=3}
+const uint8_t rotationRight = 3;   // INT1 :contentReference[oaicite:4]{index=4}
 
-const int calibrationForwardLeft = 255;
-const int calibrationBackwardLeft = 255;
+// -------------------- Calibration --------------------
+const uint8_t calibrationForwardLeft   = 255;
+const uint8_t calibrationBackwardLeft  = 255;
+const uint8_t calibrationForwardRight  = 242;
+const uint8_t calibrationBackwardRight = 220;
 
-const int calibrationForwardRight = 242;
-const int calibrationBackwardRight = 220;
+// -------------------- Encoder / geometry --------------------
+const float WHEEL_DIAMETER_CM = 6.5f;
+const int   SLOTS_PER_REV     = 20;
 
-// --- wheel/encoder constants ---
-const float WHEEL_DIAMETER_CM = 6.5;
-const int   SLOTS_PER_REV     = 20;   // 20 slits
-const int   EDGES_PER_SLOT    = 1;    // counting only 1->0 OR 0->1 (not both)
+// Count BOTH edges (CHANGE) => 2 edges per slit => supports half-slit increments
+const int   EDGES_PER_SLOT    = 2;
+const int   TICKS_PER_REV     = SLOTS_PER_REV * EDGES_PER_SLOT;
+
 const float CIRCUMFERENCE_CM  = PI * WHEEL_DIAMETER_CM;
-const float TICKS_PER_CM      = (SLOTS_PER_REV * EDGES_PER_SLOT) / CIRCUMFERENCE_CM;
+const float TICKS_PER_CM      = (float)TICKS_PER_REV / CIRCUMFERENCE_CM;
 
-// --- turn calibration (in-place) ---
-// You said: 90° turn ~= 2.5 "1-pulses" per wheel with 1× counting.
-// With 2× (both edges), that's 5 ticks.
-const float TURN_TICKS_90      = 5.0;
-const float TURN_TICKS_PER_DEG = TURN_TICKS_90 / 90.0;
+// Edge noise gate (optional; optical sensors usually clean)
+const unsigned long EDGE_MIN_US = 150;
 
-// noise gate (optical sensors usually clean, but this helps)
-const unsigned long EDGE_MIN_US = 200;
+// Turning calibration: you claim 90° robot turn ~= 2.5 slit-triggers per wheel.
+// With EDGES_PER_SLOT=2, that’s 2.5 * 2 = 5 ticks for 90°.
+const float TURN_SLOTS_FOR_90_DEG = 2.5f;
+const float TURN_TICKS_PER_DEG    = (TURN_SLOTS_FOR_90_DEG * EDGES_PER_SLOT) / 90.0f;
+
+// -------------------- Interrupt tick counters --------------------
+volatile unsigned long g_leftTicks  = 0;
+volatile unsigned long g_rightTicks = 0;
+
+volatile unsigned long g_lastLeftUs  = 0;
+volatile unsigned long g_lastRightUs = 0;
+
+static inline long roundToLong(float x) {
+  return (x >= 0.0f) ? (long)(x + 0.5f) : (long)(x - 0.5f);
+}
+
+// ISR: count every CHANGE (both edges)
+void isrLeft() {
+  unsigned long now = micros();
+  if (now - g_lastLeftUs >= EDGE_MIN_US) {
+    g_leftTicks++;
+    g_lastLeftUs = now;
+  }
+}
+
+void isrRight() {
+  unsigned long now = micros();
+  if (now - g_lastRightUs >= EDGE_MIN_US) {
+    g_rightTicks++;
+    g_lastRightUs = now;
+  }
+}
+
+// -------------------- Motor helpers --------------------
+void stopMotors() {
+  // Set PWM duty to 0 (do NOT rely on digitalWrite to stop PWM cleanly)
+  analogWrite(leftForward, 0);
+  analogWrite(leftBackward, 0);
+  analogWrite(rightForward, 0);
+  analogWrite(rightBackward, 0);
+
+  // Force low for safety
+  digitalWrite(leftForward, LOW);
+  digitalWrite(leftBackward, LOW);
+  digitalWrite(rightForward, LOW);
+  digitalWrite(rightBackward, LOW);
+}
+
+void driveForward() {
+  // Opposite direction pins off
+  analogWrite(leftBackward, 0);
+  analogWrite(rightBackward, 0);
+
+  // PWM drive pins (NO digitalWrite after analogWrite, or PWM gets cancelled) :contentReference[oaicite:5]{index=5}
+  analogWrite(leftForward, calibrationForwardLeft);
+  analogWrite(rightForward, calibrationForwardRight);
+}
+
+void driveBackward() {
+  analogWrite(leftForward, 0);
+  analogWrite(rightForward, 0);
+
+  analogWrite(leftBackward, calibrationBackwardLeft);
+  analogWrite(rightBackward, calibrationBackwardRight);
+}
+
+void turnLeftInPlace() {
+  // left backward, right forward
+  analogWrite(leftForward, 0);
+  analogWrite(rightBackward, 0);
+
+  analogWrite(leftBackward, calibrationBackwardLeft);
+  analogWrite(rightForward, calibrationForwardRight);
+}
+
+void turnRightInPlace() {
+  // left forward, right backward
+  analogWrite(leftBackward, 0);
+  analogWrite(rightForward, 0);
+
+  analogWrite(leftForward, calibrationForwardLeft);
+  analogWrite(rightBackward, calibrationBackwardRight);
+}
+
+// Read tick counters atomically
+void readTicks(unsigned long &l, unsigned long &r) {
+  noInterrupts();
+  l = g_leftTicks;
+  r = g_rightTicks;
+  interrupts();
+}
+
+void resetTicks() {
+  noInterrupts();
+  g_leftTicks = 0;
+  g_rightTicks = 0;
+  g_lastLeftUs = 0;
+  g_lastRightUs = 0;
+  interrupts();
+}
+
+// amount:
+// - forward/backward => cm
+// - left/right       => robot degrees (using your 2.5-slots-per-90deg calibration)
+void move(float amount, const char *direction) {
+  const bool isDrive = (strcmp(direction, "forward") == 0) || (strcmp(direction, "backward") == 0);
+  const bool isTurn  = (strcmp(direction, "left") == 0)    || (strcmp(direction, "right") == 0);
+  if (!isDrive && !isTurn) return;
+
+  const float absAmount = (amount >= 0.0f) ? amount : -amount;
+
+  long targetTicks = 0;
+  if (isDrive) targetTicks = roundToLong(absAmount * TICKS_PER_CM);
+  else         targetTicks = roundToLong(absAmount * TURN_TICKS_PER_DEG);
+
+  if (targetTicks <= 0) return;
+
+  resetTicks();
+
+  // Start motion
+  if      (strcmp(direction, "forward") == 0)  driveForward();
+  else if (strcmp(direction, "backward") == 0) driveBackward();
+  else if (strcmp(direction, "left") == 0)     turnLeftInPlace();
+  else if (strcmp(direction, "right") == 0)    turnRightInPlace();
+
+  const unsigned long startMs = millis();
+  const unsigned long TIMEOUT_MS = 1500UL + (unsigned long)targetTicks * 120UL;
+
+  while (true) {
+    unsigned long l, r;
+    readTicks(l, r);
+
+    // Drive: average progress; Turn: require both wheels to reach target (min)
+    unsigned long progress = isTurn ? ((l < r) ? l : r) : ((l + r) / 2);
+
+    if ((long)progress >= targetTicks) break;
+    if (millis() - startMs > TIMEOUT_MS) break;
+  }
+
+  stopMotors();
+
+  // Debug
+  unsigned long l, r;
+  readTicks(l, r);
+  Serial.print("Move "); Serial.print(direction);
+  Serial.print(" targetTicks="); Serial.print(targetTicks);
+  Serial.print(" L="); Serial.print(l);
+  Serial.print(" R="); Serial.println(r);
+}
 
 void setup() {
   Serial.begin(9600);
-
-  //A1 -> 3
-  //A2 -> 5
-  //B1 -> 6
-  //B2 -> 9
-  //R1 -> 10
-  //R2 -> 11
 
   pinMode(leftForward, OUTPUT);
   pinMode(leftBackward, OUTPUT);
@@ -47,122 +192,24 @@ void setup() {
 
   pinMode(rotationLeft, INPUT_PULLUP);
   pinMode(rotationRight, INPUT_PULLUP);
-}
 
-void stopMotors() {
-  analogWrite(leftForward, 0);
-  analogWrite(leftBackward, 0);
-  analogWrite(rightForward, 0);
-  analogWrite(rightBackward, 0);
-
-  digitalWrite(leftForward, LOW);
-  digitalWrite(leftBackward, LOW);
-  digitalWrite(rightForward, LOW);
-  digitalWrite(rightBackward, LOW);
-}
-
-void driveForward() {
-  analogWrite(leftForward, calibrationForwardLeft);
-  digitalWrite(leftBackward, LOW);
-
-  analogWrite(rightForward, calibrationForwardRight);
-  digitalWrite(rightBackward, LOW);
-}
-
-void driveBackward() {
-  analogWrite(leftBackward, calibrationBackwardLeft);
-  digitalWrite(leftForward, LOW);
-  
-  analogWrite(rightBackward, calibrationBackwardRight);
-  digitalWrite(rightForward, LOW);
-}
-
-void driveLeftTurn() {
-  // rotate left in place: left wheel backward, right wheel forward
-  analogWrite(leftBackward, calibrationBackwardLeft);
-  digitalWrite(leftForward, LOW);
-
-  analogWrite(rightForward, calibrationForwardRight);
-  digitalWrite(rightBackward, LOW);
-}
-
-void driveRightTurn() {
-  // rotate right in place: left wheel forward, right wheel backward
-  analogWrite(leftForward, calibrationForwardLeft);
-  digitalWrite(leftBackward, LOW);
-
-  analogWrite(rightBackward, calibrationBackwardRight);
-  digitalWrite(rightForward, LOW);
-}
-
-void move(int amount, String direction) {
-  bool isTurn = (direction == "left" || direction == "right");
-  if (amount <= 0) return;
-
-  // amount = cm for forward/backward, degrees for left/right
-  float targetTicksF = isTurn
-    ? (amount * TURN_TICKS_PER_DEG)
-    : (amount * TICKS_PER_CM);
-
-  long targetTicks = (long)lround(targetTicksF);
-  if (targetTicks <= 0) targetTicks = 1;
-
-  long leftTicks = 0;
-  long rightTicks = 0;
-
-  int lastL = digitalRead(rotationLeft);
-  int lastR = digitalRead(rotationRight);
-
-  unsigned long lastEdgeL = 0;
-  unsigned long lastEdgeR = 0;
-
-  if (direction == "forward")       driveForward();
-  else if (direction == "backward") driveBackward();
-  else if (direction == "left")     driveLeftTurn();
-  else if (direction == "right")    driveRightTurn();
-  else return; // invalid string
-
-  unsigned long startMs = millis();
-  const unsigned long TIMEOUT_MS = 5000UL + (unsigned long)amount * (isTurn ? 40UL : 50UL);
-
-  while (true) {
-    int curL = digitalRead(rotationLeft);
-    int curR = digitalRead(rotationRight);
-    unsigned long nowUs = micros();
-
-    // 2× counting: tick on ANY state change
-    if (curL != lastL) {
-      if (nowUs - lastEdgeL >= EDGE_MIN_US) {
-        leftTicks++;
-        lastEdgeL = nowUs;
-      }
-    }
-    if (curR != lastR) {
-      if (nowUs - lastEdgeR >= EDGE_MIN_US) {
-        rightTicks++;
-        lastEdgeR = nowUs;
-      }
-    }
-
-    lastL = curL;
-    lastR = curR;
-
-    if (!isTurn) {
-      long avg = (leftTicks + rightTicks) / 2;
-      if (avg >= targetTicks) break;
-    } else {
-      // turning: require BOTH wheels to hit target
-      if (leftTicks >= targetTicks && rightTicks >= targetTicks) break;
-    }
-
-    if (millis() - startMs > TIMEOUT_MS) break;
-  }
+  // Interrupts on pins 2 and 3 (Nano/ATmega328P)
+  attachInterrupt(digitalPinToInterrupt(rotationLeft),  isrLeft,  CHANGE);
+  attachInterrupt(digitalPinToInterrupt(rotationRight), isrRight, CHANGE); :contentReference[oaicite:6]{index=6}
 
   stopMotors();
 }
 
 void loop() {
-  move(90, "left");      // 90 degrees left
+  move(100, "forward");
   delay(500);
-  move(90, "right");     // 90 degrees right  
+
+  move(100, "backward");
+  delay(500);
+
+  move(90, "left");
+  delay(500);
+
+  move(90, "right");
+  delay(2000);
 }
