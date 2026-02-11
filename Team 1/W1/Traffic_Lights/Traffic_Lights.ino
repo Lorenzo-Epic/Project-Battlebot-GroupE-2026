@@ -1,48 +1,52 @@
 //initialising constants for LEDs
-const int ledRed = 12; //red
-const int ledYellow = 11; //yellow
-const int ledGreen = 10; //green
+const int LED_RED = 12; //red
+const int LED_YELLOW = 11; //yellow
+const int LED_GREEN = 10; //green
 
 //initialising constants for buttonpins
-const int switch1 = 9;
+const int SWITCH_1 = 9;
 
 //setting up delay times
-const int shortDelay = 1000; //1 second delay from red to green and from yellow to red
-const int longDelay = 3000; //3 second delay from green to yellow
+const int SHORT_DELAY = 1000; //1 second delay from red to green and from yellow to red
+const int LONG_DELAY = 3000; //3 second delay from green to yellow
 
 void setup() {
   //setting up the LEDs as outputs
-  pinMode(ledRed, OUTPUT);
-  pinMode(ledYellow, OUTPUT);
-  pinMode(ledGreen, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_YELLOW, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
 
   //setting up the button pin
-  pinMode(switch1, INPUT);
+  pinMode(SWITCH_1, INPUT);
 }
 
 void loop() {
 
-  digitalWrite(ledYellow, HIGH);
-  digitalWrite(ledGreen, HIGH);
+  //turning off the yellow and green LEDs initially
+  digitalWrite(LED_YELLOw, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
 
-  if (digitalRead(switch1) == LOW) {
+  if (digitalRead(SWITCH_1) == LOW) { //if button is pressed
 
-    delay(shortDelay);
+    delay(SHORT_DELAY);
 
-    digitalWrite(ledRed, HIGH);
-    digitalWrite(ledYellow, HIGH);
-    digitalWrite(ledGreen, LOW);
+    //GREEN
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_YELLOW, HIGH);
+    digitalWrite(LED_GREEN, LOW);
 
-    delay(longDelay);
+    delay(LONG_DELAY);
 
-    digitalWrite(ledRed, HIGH);
-    digitalWrite(ledYellow, LOW);
-    digitalWrite(ledGreen, HIGH);
+    //YELLOW
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_YELLOW, LOW);
+    digitalWrite(LED_GREEN, HIGH);
 
-    delay(shortDelay);
+    delay(SHORT_DELAY);
 
-    digitalWrite(ledRed, LOW);
-    digitalWrite(ledYellow, HIGH);
-    digitalWrite(ledGreen, HIGH);
+    //RED
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_YELLOW, HIGH);
+    digitalWrite(LED_GREE, HIGH);
   }
 }
