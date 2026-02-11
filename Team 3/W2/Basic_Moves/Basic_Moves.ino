@@ -208,6 +208,8 @@ void setup() {
 }
 
 void loop() {
+//  /if you move forward or backwards, unit is in CM
+///if you move left or right, unit is in degrees
   move(100, "forward");
   delay(1000);
 
