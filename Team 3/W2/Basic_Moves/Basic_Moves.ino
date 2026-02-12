@@ -19,7 +19,7 @@ const uint8_t calibrationForwardRight  = 242;
 const uint8_t calibrationBackwardRight = 220;
 
 // -------------------- Encoder / geometry --------------------
-const float WHEEL_DIAMETER_CM = 7.0f;
+const float WHEEL_DIAMETER_CM = 6.5f;
 const int   SLOTS_PER_REV     = 20;
 
 // Count BOTH edges (CHANGE) => 2 edges per slit => supports half-slit increments
@@ -34,7 +34,7 @@ const unsigned long EDGE_MIN_US = 150;
 
 // Turning calibration: you claim 90° robot turn ~= 2.5 slit-triggers per wheel.
 // With EDGES_PER_SLOT=2, that’s 2.5 * 2 = 5 ticks for 90°.
-const float TURN_SLOTS_FOR_90_DEG = 6.0f;
+const float TURN_SLOTS_FOR_90_DEG = 8.0f;
 const float TURN_TICKS_PER_DEG    = (TURN_SLOTS_FOR_90_DEG * EDGES_PER_SLOT) / 90.0f;
 
 // -------------------- Interrupt tick counters --------------------
