@@ -1,8 +1,7 @@
-#include <Arduino.h> 
-const int MOTORA1 = 6;  // right forward 
-const int MOTORA2 = 5;  // right back
-const int MOTORB1 = 10; // left back
-const int MOTORB2 = 11;  //left forward
+const int RIGHTFORWARD_A1 = 6;  // right forward 
+const int RIGHTBACK_A2 = 5;  // right back
+const int LEFTBACK_B1 = 10; // left back
+const int LEFTFORWARD_B2 = 11;  //left forward
 
 void MoveForward();     // Move forwards 
 void MoveBackward();    // Move backwards 
@@ -14,10 +13,10 @@ void stop();            // Stops  all the wheels
 
 void setup() { 
 
-  pinMode(MOTORA1, OUTPUT); 
-  pinMode(MOTORA2, OUTPUT); 
-  pinMode(MOTORB1, OUTPUT); 
-  pinMode(MOTORB2, OUTPUT); 
+  pinMode(RIGHTFORWARD_A1, OUTPUT); 
+  pinMode(RIGHTBACK_A2, OUTPUT); 
+  pinMode(LEFTBACK_B1, OUTPUT); 
+  pinMode(LEFTFORWARD_B2, OUTPUT); 
 } 
 
  
@@ -27,21 +26,21 @@ void loop() {
   MoveForward(); 
   stop(); 
   MoveBackward(); 
+  stop();
+  TurnL();
   stop(); 
   TurnR(); 
-  stop(); 
-  TurnL();
-  stop();  
+  stop();   
 } 
 
 void MoveForward(){ 
 
  
 
-  analogWrite(MOTORA1, 250); //right forward
-  analogWrite(MOTORA2, 0); //right back
-  analogWrite(MOTORB1, 0); //left back
-  analogWrite(MOTORB2, 200); //left forward
+  analogWrite(RIGHTFORWARD_A1, 245); //right forward
+  analogWrite(RIGHTBACK_A2, 0); //right back
+  analogWrite(LEFTBACK_B1, 0); //left back
+  analogWrite(LEFTFORWARD_B2, 200); //left forward
 
  
 
@@ -59,10 +58,10 @@ void MoveBackward(){
 
  
 
-  analogWrite(MOTORA1, 0); 
-  analogWrite(MOTORA2, 238); 
-  analogWrite(MOTORB1, 200); 
-  analogWrite(MOTORB2, 0); 
+  analogWrite(RIGHTFORWARD_A1, 0); 
+  analogWrite(RIGHTBACK_A2, 235); 
+  analogWrite(LEFTBACK_B1, 210); 
+  analogWrite(LEFTFORWARD_B2, 0); 
 
   unsigned long stopStartTime = millis(); 
 
@@ -77,19 +76,19 @@ void TurnL(){
 
  
 
-  analogWrite(MOTORA1, 250); 
+  analogWrite(RIGHTFORWARD_A1, 250); 
 
-  analogWrite(MOTORA2, 0); 
+  analogWrite(RIGHTBACK_A2, 0); 
 
-  analogWrite(MOTORB1, 250); 
+  analogWrite(LEFTBACK_B1, 250); 
 
-  analogWrite(MOTORB2, 0); 
+  analogWrite(LEFTFORWARD_B2, 0); 
 
  
 
   unsigned long stopStartTime = millis(); 
 
-  while (millis() - stopStartTime < 500){ 
+  while (millis() - stopStartTime < 575){ 
 
      
 
@@ -101,19 +100,19 @@ void TurnR(){
 
  
 
-  analogWrite(MOTORA1, 0); 
+  analogWrite(RIGHTFORWARD_A1, 0); 
 
-  analogWrite(MOTORA2, 250); 
+  analogWrite(RIGHTBACK_A2, 250); 
 
-  analogWrite(MOTORB1, 0); 
+  analogWrite(LEFTBACK_B1, 0); 
 
-  analogWrite(MOTORB2, 250); 
+  analogWrite(LEFTFORWARD_B2, 250); 
 
  
 
   unsigned long stopStartTime = millis(); 
 
-  while (millis() - stopStartTime < 500){ 
+  while (millis() - stopStartTime < 495){ 
 
  
 
@@ -125,16 +124,16 @@ void stop(){
 
  
 
-  analogWrite(MOTORA1, 0); 
-  analogWrite(MOTORA2, 0); 
-  analogWrite(MOTORB1, 0); 
-  analogWrite(MOTORB2, 0); 
+  analogWrite(RIGHTFORWARD_A1, 0); 
+  analogWrite(RIGHTBACK_A2, 0); 
+  analogWrite(LEFTBACK_B1, 0); 
+  analogWrite(LEFTFORWARD_B2, 0); 
 
  
 
   unsigned long stopStartTime = millis(); 
 
-  while (millis() - stopStartTime < 1500){ 
+  while (millis() - stopStartTime < 1000){ 
 
  
 
