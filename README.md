@@ -9,7 +9,7 @@ Line (Group 1):
 
 Line Maze (Group 2):
     - Oleksii
-    - Mohammadamin
+    - Amin
 
 Maze (Group 3):
     - Lorenzo
