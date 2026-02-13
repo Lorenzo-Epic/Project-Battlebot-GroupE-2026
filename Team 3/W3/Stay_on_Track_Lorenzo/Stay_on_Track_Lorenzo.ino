@@ -12,6 +12,9 @@ const int ROTATION_RIGHT_PIN = 3;
 const int ULTRASOUND_TRIG_PIN = 11;
 const int ULTRASOUND_ECHO_PIN = 12;
 
+const int LIGHT_SENSOR_PINS = {A0, A1, A2, A3, A4, A5, A6, A7};
+int weights[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
 // Motor PWM calibration.
 const int CALIBRATION_FORWARD_LEFT = 255;
 const int CALIBRATION_BACKWARD_LEFT = 255;
@@ -135,6 +138,29 @@ void resetTicks() {
   interrupts();
 }
 
+// Send a 10 us trigger pulse and measure echo high time.
+float getUltrasoundDuration() {
+  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ULTRASOUND_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
+
+  return pulseIn(ULTRASOUND_ECHO_PIN, HIGH, ULTRASOUND_TIMEOUT_US);
+}
+
+float getUltrasoundDistance() {
+  // 0.0343 cm/us is speed of sound in air. Divide by 2 for round trip.
+  float ultrasoundDuration = getUltrasoundDuration();
+  float ultrasoundDistance = (ultrasoundDuration * 0.0343f) / 2.0f;
+
+  Serial.print("Distance: ");
+  Serial.println(ultrasoundDistance);
+
+  return ultrasoundDistance;
+}
+
+
 void move(float amount, const char *direction) {
   // Input units:
   // - "forward" / "backward": amount is cm.
@@ -250,59 +276,11 @@ void setup() {
   attachInterrupt(LEFT_INTERRUPT, isrLeft, CHANGE);
   attachInterrupt(RIGHT_INTERRUPT, isrRight, CHANGE);
 
+  for (int i = 0; i < 8; i++) pinMode(sensorPins[i], INPUT);
+
   stopMotors();
 }
 
-// Send a 10 us trigger pulse and measure echo high time.
-float getUltrasoundDuration() {
-  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(ULTRASOUND_TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(ULTRASOUND_TRIG_PIN, LOW);
-
-  return pulseIn(ULTRASOUND_ECHO_PIN, HIGH, ULTRASOUND_TIMEOUT_US);
-}
-
-float getUltrasoundDistance() {
-  // 0.0343 cm/us is speed of sound in air. Divide by 2 for round trip.
-  float ultrasoundDuration = getUltrasoundDuration();
-  float ultrasoundDistance = (ultrasoundDuration * 0.0343f) / 2.0f;
-
-  Serial.print("Distance: ");
-  Serial.println(ultrasoundDistance);
-
-  return ultrasoundDistance;
-}
-
 void loop() {
-  float distance = getUltrasoundDistance();
-
-  if (distance > ULTRASOUND_DISTANCE_MIN && distance < ULTRASOUND_DISTANCE_MAX) {
-    stopMotors();
-    delay(200);
-
-    move(90, "right");
-    delay(200);
-
-    move(20, "forward");
-    delay(200);
-
-    move(90, "left");
-    delay(200);
-
-    move(40, "forward");
-    delay(200);
-
-    move(90, "left");
-    delay(200);
-
-    move(20, "forward");
-    delay(200);
-
-    move(90, "right");
-    delay(200);
-  } else {
-    move(10, "forward");
-  }
+  
 }
