@@ -12,7 +12,7 @@ const int ROTATION_RIGHT_PIN = 3;
 const int ULTRASOUND_TRIG_PIN = 11;
 const int ULTRASOUND_ECHO_PIN = 12;
 
-const int LIGHT_SENSOR_PINS = {A0, A1, A2, A3, A4, A5, A6, A7};
+const int LIGHT_SENSOR_PINS[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
 int weights[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 // Motor PWM calibration.
@@ -249,6 +249,20 @@ void move(float amount, const char *direction) {
   Serial.println(r);
 }
 
+void readSensors() {
+  long sum = 0;
+  long total = 0;
+
+  for (int i = 0; i < 8; i++) {
+    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
+
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" : ");
+    Serial.print(raw);
+  }
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -276,11 +290,12 @@ void setup() {
   attachInterrupt(LEFT_INTERRUPT, isrLeft, CHANGE);
   attachInterrupt(RIGHT_INTERRUPT, isrRight, CHANGE);
 
-  for (int i = 0; i < 8; i++) pinMode(sensorPins[i], INPUT);
+  for (int i = 0; i < 8; i++) pinMode(LIGHT_SENSOR_PINS[i], INPUT);
 
   stopMotors();
 }
 
 void loop() {
-  
+  readSensors();
+  delay(1000);
 }
