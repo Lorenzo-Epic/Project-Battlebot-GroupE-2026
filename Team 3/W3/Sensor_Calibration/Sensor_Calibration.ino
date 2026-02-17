@@ -12,14 +12,24 @@ const int ULTRASOUND_ECHO_PIN = 12;
 
 const int NUM_SENSORS = 8;
 const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
-/// light sensor calibration
-int weights[NUM_SENSORS] = {310, 319, 338, 285, 296, 275, 245, 229};
+
+///Light sensors
+///number of samples for the log
+const int SENSOR_SAMPLES_AMOUNT = 75;
+///sensor calibration
+int weights[NUM_SENSORS] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+///2D log array and index
+int sensorLog[NUM_SENSORS][SENSOR_SAMPLES_AMOUNT];
+int logIndex = 0;
+bool logFull = false;
 
 // Motor PWM calibration.
 const int CALIBRATION_FORWARD_LEFT = 255;
 const int CALIBRATION_BACKWARD_LEFT = 255;
 const int CALIBRATION_FORWARD_RIGHT = 243;
 const int CALIBRATION_BACKWARD_RIGHT = 210;
+
 
 // Lower PWM near turn target to reduce overshoot. (NOT VERIFIED YET)
 const int TURN_SLOW_LEFT_FORWARD = 150;
@@ -74,24 +84,66 @@ void drive(byte option) {
   }
 }
 
-int applyLightSensorCalibration(int raw, int sensorIndex) {
-  int v = raw + weights[sensorIndex];
-  return constrain(v, 0, 1023);
-}
-
 ///Only reading light sensors
 void readSensors() {
   for (int i = 0; i < NUM_SENSORS; i++) {
     int raw = analogRead(LIGHT_SENSOR_PINS[i]);
-    int calibrated = applyLightSensorCalibration(raw, i);
 
-    Serial.print("Sensor (Calibrated)");
+    Serial.print("Sensor ");
     Serial.print(i);
     Serial.print(" : ");
-    Serial.print(calibrated);
+    Serial.print(raw);
     Serial.print(" ");
   }
   Serial.print("\n");
+}
+
+///Reading light sensors and outputting to console
+void readLightSensorsandLog() {
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
+
+    if (!logFull) {
+      sensorLog[i][logIndex] = raw;  // store into 2D array
+    }
+    
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" : ");
+    Serial.print(raw);
+    Serial.print(" ");
+  }
+
+  if (!logFull) {
+    logIndex++;
+    if (logIndex >= SENSOR_SAMPLES_AMOUNT) {  
+      logFull = true;
+      logIndex = SENSOR_SAMPLES_AMOUNT - 1;   
+  }
+  
+  Serial.print("\n");
+  }
+}
+
+///Printing the average values of the light sensors from the logs for calibration
+void printLightSensorsLog() {
+
+  if (!logFull) {
+    return;
+  }
+
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    long sum = 0;
+    for (int g = 0; g < SENSOR_SAMPLES_AMOUNT; g++) {
+      sum += sensorLog[i][g];
+    }
+    double avg = (double)sum / (double)SENSOR_SAMPLES_AMOUNT;
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" average: ");
+    Serial.print(avg);
+    Serial.print("\n");
+  }
 }
 
 void setup() {
@@ -114,7 +166,9 @@ void setup() {
 }
 
 void loop() {
-  delay(1000);
-  readSensors();
+  delay(100);
+  readLightSensorsandLog();
+  delay(100);
+  printLightSensorsLog();
   
 }
