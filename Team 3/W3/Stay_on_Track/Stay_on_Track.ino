@@ -16,16 +16,20 @@ const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
 // PID
 float Kp = 0.12;
 float Ki = 0.001;
-float Kd = 0.02;
+float Kd = 0.02; //make lower if robot still twitchy (oroginal value was 0.02)
 
 int integral = 0;
 int previousError = 0;
-int baseSpeed = 200;   // reduced for stability
+int baseSpeed = 255;   // reduced for stability
+const int SPEED_CENTER = 255;   // A3/A4
+const int SPEED_OUTER  = 200;   // A2/A5
+const int SPEED_EDGE   = 150;   // A0/A1/A6/A7
 
-int sensorWeights[NUM_SENSORS] = {-3500,-2500,-1500,-500,500,1500,2500,3500};
+int sensorWeights[NUM_SENSORS] = {-4000,-2500,-500,-500,500,500,2500,4000};
+/// original value: {-3500,-2500,-1500,-500,500,1500,2500,3500}
 
 // sensor calibration
-int weights[NUM_SENSORS] = {20,15,10,5,-5,-10,-15,-20};
+int weights[NUM_SENSORS] = {-237, -233, -224, -257, -250, -266, -287, -303};
 
 // thresholds
 const int LIGHT_SENSOR_WHITE_THRESHOLD = 400;
@@ -115,6 +119,35 @@ void PID_LineFollow(int error) {
   driveMotors(leftSpeed, rightSpeed);
 }
 
+int computeBaseSpeed() {
+  bool center = false;
+  bool outer  = false;
+  bool edge   = false;
+
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
+    int calibrated = applyLightSensorCalibration(raw, i);
+
+    if (calibrated > LIGHT_SENSOR_BLACK_THRESHOLD) {
+      if (i == 2 || i == 3 || i == 4 || i == 5) center = true;
+      if (i == 1 || i == 6) outer = true;
+      if (i == 0 || i == 7) edge = true;
+    }
+  }
+
+  if (edge == true) {
+    return SPEED_EDGE;
+  }
+  if (outer == true) {
+    return SPEED_OUTER;
+  }
+  if (center == true) {
+    return SPEED_CENTER;
+  }
+
+  return SPEED_EDGE; // lost line:
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -136,8 +169,7 @@ void setup() {
 }
 
 void loop() {
+  baseSpeed = computeBaseSpeed();
   int position = readLinePosition();
   PID_LineFollow(position);
-
-  delay(5); // stability
 }
