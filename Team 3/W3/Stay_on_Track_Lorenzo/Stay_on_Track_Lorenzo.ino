@@ -28,10 +28,17 @@ int sensorWeights[NUM_SENSORS] = {-3500, -2500, -1500, -500, 500, 1500, 2500, 35
 
 // Sensor calibration offsets
 int weights[NUM_SENSORS] = {310, 319, 338, 285, 296, 275, 245, 229};
+<<<<<<< HEAD
 
 // Sensor thresholds
 const int LIGHT_SENSOR_WHITE_THRESHOLD = 550;
 const int LIGHT_SENSOR_BLACK_THRESHOLD = 450;
+=======
+const int LIGHT_SENSOR_WHITE_THRESHOLD = 450; //adjust these two later, calibrate with the black lines
+const int LIGHT_SENSOR_BLACK_THRESHOLD = 550;
+///high values are black
+///low values are white
+>>>>>>> a8c91eebdb8fa4ed56d9fd8d67bd34462735e833
 
 // Motor calibration
 const int CALIBRATION_FORWARD_LEFT  = 255;
@@ -110,10 +117,22 @@ void PID_LineFollow(int error) {
   int PIDvalue = (Kp * P) + (Ki * integral) + (Kd * D);
   previousError = error;
 
+<<<<<<< HEAD
   int leftSpeed  = baseSpeed - PIDvalue;
   int rightSpeed = baseSpeed + PIDvalue;
 
   driveMotors(leftSpeed, rightSpeed);
+=======
+    if (calibrated < LIGHT_SENSOR_WHITE_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 1; //if lower than white threshold (means its white), mark as 1
+      
+    } else if (calibrated > LIGHT_SENSOR_BLACK_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 2; //if higher than black threshold (means its black), mark as 2
+    }
+    
+    }
+  
+>>>>>>> a8c91eebdb8fa4ed56d9fd8d67bd34462735e833
 }
 
 void setup() {
