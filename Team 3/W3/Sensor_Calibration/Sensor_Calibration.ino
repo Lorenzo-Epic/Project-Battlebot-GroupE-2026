@@ -18,6 +18,8 @@ const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
 const int SENSOR_SAMPLES_AMOUNT = 75;
 ///sensor calibration
 int weights[NUM_SENSORS] = {0, 0, 0, 0, 0, 0, 0, 0};
+float whiteAvg[NUM_SENSORS] = {0};
+float blackAvg[NUM_SENSORS] = {0};
 
 ///2D log array and index
 int sensorLog[NUM_SENSORS][SENSOR_SAMPLES_AMOUNT];
@@ -107,11 +109,11 @@ void readLightSensorsandLog() {
       sensorLog[i][logIndex] = raw;  // store into 2D array
     }
     
-    Serial.print("Sensor ");
-    Serial.print(i);
-    Serial.print(" : ");
-    Serial.print(raw);
-    Serial.print(" ");
+//    Serial.print("Sensor ");
+//    Serial.print(i);
+//    Serial.print(" : ");
+//    Serial.print(raw);
+//    Serial.print(" ");
   }
 
   if (!logFull) {
@@ -121,7 +123,7 @@ void readLightSensorsandLog() {
       logIndex = SENSOR_SAMPLES_AMOUNT - 1;   
   }
   
-  Serial.print("\n");
+//  Serial.print("\n");
   }
 }
 
@@ -166,9 +168,24 @@ void setup() {
 }
 
 void loop() {
-  delay(100);
-  readLightSensorsandLog();
-  delay(100);
+
+  Serial.print("Put robot on white!");
+  delay(3000);
+
+  for (int i = 0; i < SENSOR_SAMPLES_AMOUNT; i++) {
+    readLightSensorsandLog();
+  }
+  printLightSensorsLog();
+
+//  /reset values
+  logIndex = 0;
+  logFull = false;
+  
+  Serial.print("Put robot on black!");
+  delay(5000);
+  for (int i = 0; i < SENSOR_SAMPLES_AMOUNT; i++) {
+    readLightSensorsandLog();
+  }
   printLightSensorsLog();
   
 }

@@ -14,8 +14,10 @@ const int NUM_SENSORS = 8;
 const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
 /// light sensor calibration
 int weights[NUM_SENSORS] = {310, 319, 338, 285, 296, 275, 245, 229};
-const int LIGHT_SENSOR_WHITE_THRESHOLD = 550; //adjust these two later, calibrate with the black lines
-const int LIGHT_SENSOR_BLACK_THRESHOLD = 450;
+const int LIGHT_SENSOR_WHITE_THRESHOLD = 450; //adjust these two later, calibrate with the black lines
+const int LIGHT_SENSOR_BLACK_THRESHOLD = 550;
+///high values are black
+///low values are white
 
 // Motor PWM calibration.
 const int CALIBRATION_FORWARD_LEFT = 255;
@@ -105,11 +107,11 @@ void readLine() {
     int raw = analogRead(LIGHT_SENSOR_PINS[i]);
     int calibrated = applyLightSensorCalibration(raw, i);
 
-    if (calibrated > LIGHT_SENSOR_WHITE_THRESHOLD) {
-      sensorsBlackAndWhiteReadout[i] = 1; //if lighter than white threshold, mark as 1
+    if (calibrated < LIGHT_SENSOR_WHITE_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 1; //if lower than white threshold (means its white), mark as 1
       
-    } else if (calibrated < LIGHT_SENSOR_BLACK_THRESHOLD) {
-      sensorsBlackAndWhiteReadout[i] = 2; //if darker than black threshold, mark as 2
+    } else if (calibrated > LIGHT_SENSOR_BLACK_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 2; //if higher than black threshold (means its black), mark as 2
     }
     
     }
