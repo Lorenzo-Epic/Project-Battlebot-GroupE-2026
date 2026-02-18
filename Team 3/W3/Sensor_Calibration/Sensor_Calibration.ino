@@ -151,6 +151,15 @@ void calculateLightSensorsCalibration() {
      Serial.print("\n");
     
    }
+
+   Serial.print("{");
+   for (int i = 0; i < NUM_SENSORS; i++) {
+    Serial.print(weights[i]);
+    if (i < NUM_SENSORS - 1) {
+      Serial.print(", ");
+    }
+   }
+  Serial.print("}\n");
   
 }
 
