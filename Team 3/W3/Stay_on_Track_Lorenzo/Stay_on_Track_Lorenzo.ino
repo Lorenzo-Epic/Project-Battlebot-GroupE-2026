@@ -14,6 +14,8 @@ const int NUM_SENSORS = 8;
 const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
 /// light sensor calibration
 int weights[NUM_SENSORS] = {310, 319, 338, 285, 296, 275, 245, 229};
+const int LIGHT_SENSOR_WHITE_THRESHOLD = 550; //adjust these two later, calibrate with the black lines
+const int LIGHT_SENSOR_BLACK_THRESHOLD = 450;
 
 // Motor PWM calibration.
 const int CALIBRATION_FORWARD_LEFT = 255;
@@ -21,7 +23,7 @@ const int CALIBRATION_BACKWARD_LEFT = 255;
 const int CALIBRATION_FORWARD_RIGHT = 243;
 const int CALIBRATION_BACKWARD_RIGHT = 210;
 
-// Lower PWM near turn target to reduce overshoot. (NOT VERIFIED YET)
+// Lower PWM at turn to reduce overshoot. (NOT VERIFIED YET)
 const int TURN_SLOW_LEFT_FORWARD = 150;
 const int TURN_SLOW_LEFT_BACKWARD = 150;
 const int TURN_SLOW_RIGHT_FORWARD = 145;
@@ -92,6 +94,26 @@ void readSensors() {
     Serial.print(" ");
   }
   Serial.print("\n");
+}
+
+void readLine() {
+
+//  0 is ignore, 1 is white, 2 is black
+  int sensorsBlackAndWhiteReadout[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
+    int calibrated = applyLightSensorCalibration(raw, i);
+
+    if (calibrated > LIGHT_SENSOR_WHITE_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 1; //if lighter than white threshold, mark as 1
+      
+    } else if (calibrated < LIGHT_SENSOR_BLACK_THRESHOLD) {
+      sensorsBlackAndWhiteReadout[i] = 2; //if darker than black threshold, mark as 2
+    }
+    
+    }
+  
 }
 
 void setup() {
