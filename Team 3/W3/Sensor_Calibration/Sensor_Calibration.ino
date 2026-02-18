@@ -1,134 +1,52 @@
 // Pin mapping.
-const int LEFT_BACKWARD_PIN = 10;
-const int LEFT_FORWARD_PIN = 5;
-const int RIGHT_FORWARD_PIN = 6;
-const int RIGHT_BACKWARD_PIN = 9;
-
-const int ROTATION_LEFT_PIN = 2;
-const int ROTATION_RIGHT_PIN = 3;
-
-const int ULTRASOUND_TRIG_PIN = 11;
-const int ULTRASOUND_ECHO_PIN = 12;
-
 const int NUM_SENSORS = 8;
 const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
 
 ///Light sensors
 ///number of samples for the log
-const int SENSOR_SAMPLES_AMOUNT = 75;
+const int SENSOR_SAMPLES_AMOUNT = 67;
 ///sensor calibration
 int weights[NUM_SENSORS] = {0, 0, 0, 0, 0, 0, 0, 0};
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
+long whiteAvgTotalAverage = 0;
+long blackAvgTotalAverage = 0;
+///the average targeted by the script, so greater than targetAvg is black, lower is white
+int targetAvg = 500;
+
 
 ///2D log array and index
 int sensorLog[NUM_SENSORS][SENSOR_SAMPLES_AMOUNT];
 int logIndex = 0;
 bool logFull = false;
 
-// Motor PWM calibration.
-const int CALIBRATION_FORWARD_LEFT = 255;
-const int CALIBRATION_BACKWARD_LEFT = 255;
-const int CALIBRATION_FORWARD_RIGHT = 243;
-const int CALIBRATION_BACKWARD_RIGHT = 210;
-
-
-// Lower PWM near turn target to reduce overshoot. (NOT VERIFIED YET)
-const int TURN_SLOW_LEFT_FORWARD = 150;
-const int TURN_SLOW_LEFT_BACKWARD = 150;
-const int TURN_SLOW_RIGHT_FORWARD = 145;
-const int TURN_SLOW_RIGHT_BACKWARD = 135;
-
-/// 0 = stop
-/// 1 = drive forward
-/// 2 = drive backward
-/// 3 = turn left in place
-/// 4 = turn right in place
-void drive(byte option) {
-  if (option == 0) {
-    analogWrite(LEFT_FORWARD_PIN, 0);
-    analogWrite(LEFT_BACKWARD_PIN, 0);
-    analogWrite(RIGHT_FORWARD_PIN, 0);
-    analogWrite(RIGHT_BACKWARD_PIN, 0);
-  
-    digitalWrite(LEFT_FORWARD_PIN, LOW);
-    digitalWrite(LEFT_BACKWARD_PIN, LOW);
-    digitalWrite(RIGHT_FORWARD_PIN, LOW);
-    digitalWrite(RIGHT_BACKWARD_PIN, LOW);
-  }
-  if (option == 1) {
-    analogWrite(LEFT_BACKWARD_PIN, 0);
-    analogWrite(RIGHT_BACKWARD_PIN, 0);
-  
-    analogWrite(LEFT_FORWARD_PIN, CALIBRATION_FORWARD_LEFT);
-    analogWrite(RIGHT_FORWARD_PIN, CALIBRATION_FORWARD_RIGHT);
-  }
-  if (option == 2) {
-    analogWrite(LEFT_FORWARD_PIN, 0);
-    analogWrite(RIGHT_FORWARD_PIN, 0);
-
-   analogWrite(LEFT_BACKWARD_PIN, CALIBRATION_BACKWARD_LEFT);
-   analogWrite(RIGHT_BACKWARD_PIN, CALIBRATION_BACKWARD_RIGHT);
-  }
-  if (option == 3) {
-    analogWrite(LEFT_FORWARD_PIN, 0);
-    analogWrite(RIGHT_BACKWARD_PIN, 0);
-
-    analogWrite(LEFT_BACKWARD_PIN, CALIBRATION_BACKWARD_LEFT);
-    analogWrite(RIGHT_FORWARD_PIN, CALIBRATION_FORWARD_RIGHT);
-  }
-  if (option == 4) {
-    analogWrite(LEFT_BACKWARD_PIN, 0);
-    analogWrite(RIGHT_FORWARD_PIN, 0);
-
-    analogWrite(LEFT_FORWARD_PIN, CALIBRATION_FORWARD_LEFT);
-    analogWrite(RIGHT_BACKWARD_PIN, CALIBRATION_BACKWARD_RIGHT);
-  }
+///reset sensor calibration log
+void resetLog() {
+  logIndex = 0;
+  logFull = false;
 }
 
-///Only reading light sensors
-void readSensors() {
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
-
-    Serial.print("Sensor ");
-    Serial.print(i);
-    Serial.print(" : ");
-    Serial.print(raw);
-    Serial.print(" ");
-  }
-  Serial.print("\n");
-}
-
-///Reading light sensors and outputting to console
+///Reading light sensors and logging SENSOR_SAMPLES_AMOUNT x into array
 void readLightSensorsandLog() {
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
-
-    if (!logFull) {
-      sensorLog[i][logIndex] = raw;  // store into 2D array
-    }
-    
-//    Serial.print("Sensor ");
-//    Serial.print(i);
-//    Serial.print(" : ");
-//    Serial.print(raw);
-//    Serial.print(" ");
-  }
-
-  if (!logFull) {
-    logIndex++;
-    if (logIndex >= SENSOR_SAMPLES_AMOUNT) {  
-      logFull = true;
-      logIndex = SENSOR_SAMPLES_AMOUNT - 1;   
+  if (logFull) {
+    return;
   }
   
-//  Serial.print("\n");
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    int raw = analogRead(LIGHT_SENSOR_PINS[i]);
+    sensorLog[i][logIndex] = raw;  // store into 2D array
+  }
+
+  logIndex++;
+  if (logIndex >= SENSOR_SAMPLES_AMOUNT) {
+    logFull = true;
+    logIndex = SENSOR_SAMPLES_AMOUNT - 1;
   }
 }
 
-///Printing the average values of the light sensors from the logs for calibration
-void printLightSensorsLog() {
+///Printing the average values of the light sensors from the logs for calibration and writing to the white/black avg arrays
+void printLightSensorsLog(int blackOrWhite) {
+//  /1 is white, 2 is black
 
   if (!logFull) {
     return;
@@ -139,53 +57,111 @@ void printLightSensorsLog() {
     for (int g = 0; g < SENSOR_SAMPLES_AMOUNT; g++) {
       sum += sensorLog[i][g];
     }
-    double avg = (double)sum / (double)SENSOR_SAMPLES_AMOUNT;
+    float avg = (float)sum / (float)SENSOR_SAMPLES_AMOUNT;
+    
     Serial.print("Sensor ");
     Serial.print(i);
     Serial.print(" average: ");
     Serial.print(avg);
     Serial.print("\n");
+
+    if (blackOrWhite == 1) {
+      whiteAvg[i] = avg;   
+    } else {
+      blackAvg[i] = avg;
+    }
+    
   }
+}
+
+void getAvgBlackOrWhite(int blackOrWhite) {
+//  1 is white, 2 is black
+  if (blackOrWhite == 1) {
+    Serial.println("Put robot on white!");
+  } else {
+    Serial.println("Put robot on black!");
+  }
+
+//  /give user time to place robot
+  delay (5000);
+
+  resetLog();
+  while (!logFull) {
+    readLightSensorsandLog();
+  }
+  printLightSensorsLog(blackOrWhite);
+
+
+  long totalAverage = 0;
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    if (blackOrWhite == 1) {
+      totalAverage += (long)whiteAvg[i];
+    } else {
+      totalAverage += (long)blackAvg[i];
+    }
+  }
+  
+  if (blackOrWhite == 1) {
+      whiteAvgTotalAverage = totalAverage / NUM_SENSORS;
+  } else {
+      blackAvgTotalAverage = totalAverage / NUM_SENSORS;
+  }
+  
+
+  Serial.print("Total average: ");
+  if (blackOrWhite == 1) {
+    Serial.print(whiteAvgTotalAverage);
+  } else {
+    Serial.print(blackAvgTotalAverage);
+  }
+  Serial.print("\n");
+
+}
+
+void calculateLightSensorsCalibration() {
+
+   getAvgBlackOrWhite(1);
+   getAvgBlackOrWhite(2);
+
+   long midPoint = (whiteAvgTotalAverage + blackAvgTotalAverage) / 2;
+
+   Serial.print("White total avg: ");
+   Serial.print(whiteAvgTotalAverage);
+   Serial.print("\n");
+
+   Serial.print("Black total avg: ");
+   Serial.print(blackAvgTotalAverage);
+   Serial.print("\n");
+
+   Serial.print("Midpoint: ");
+   Serial.print(midPoint);
+   Serial.print("\n");
+
+   // Per-sensor calibration (each sensor gets its own weight)
+   for (int i = 0; i < NUM_SENSORS; i++) {
+     long sensorMidPoint = (long)((whiteAvg[i] + blackAvg[i]) / 2.0f);
+     weights[i] = (int)(targetAvg - sensorMidPoint);
+
+     Serial.print("Sensor ");
+     Serial.print(i);
+     Serial.print(" midpoint: ");
+     Serial.print(sensorMidPoint);
+     Serial.print(" weight: ");
+     Serial.print(weights[i]);
+     Serial.print("\n");
+    
+   }
+  
 }
 
 void setup() {
   Serial.begin(9600);
-
-  pinMode(LEFT_FORWARD_PIN, OUTPUT);
-  pinMode(LEFT_BACKWARD_PIN, OUTPUT);
-  pinMode(RIGHT_FORWARD_PIN, OUTPUT);
-  pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
-
-  pinMode(ROTATION_LEFT_PIN, INPUT_PULLUP);
-  pinMode(ROTATION_RIGHT_PIN, INPUT_PULLUP);
-
-  pinMode(ULTRASOUND_TRIG_PIN, OUTPUT);
-  pinMode(ULTRASOUND_ECHO_PIN, INPUT);
   
   for (int i = 0; i < 8; i++) pinMode(LIGHT_SENSOR_PINS[i], INPUT);
 
-  drive(0);
 }
 
 void loop() {
-
-  Serial.print("Put robot on white!");
-  delay(3000);
-
-  for (int i = 0; i < SENSOR_SAMPLES_AMOUNT; i++) {
-    readLightSensorsandLog();
-  }
-  printLightSensorsLog();
-
-//  /reset values
-  logIndex = 0;
-  logFull = false;
-  
-  Serial.print("Put robot on black!");
-  delay(5000);
-  for (int i = 0; i < SENSOR_SAMPLES_AMOUNT; i++) {
-    readLightSensorsandLog();
-  }
-  printLightSensorsLog();
-  
+  calculateLightSensorsCalibration();
+  delay (60000);
 }
