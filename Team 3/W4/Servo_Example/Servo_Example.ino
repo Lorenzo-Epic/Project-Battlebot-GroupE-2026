@@ -1,6 +1,6 @@
-#define SERVO 12 ///Pin 12
-#define GRIPPER_OPEN 1600
-#define GRIPPER_CLOSE 900
+#define SERVO 10 ///Pin 12
+#define GRIPPER_OPEN 1820
+#define GRIPPER_CLOSE 1000
 
 void setup() {
   pinMode(SERVO, OUTPUT);
