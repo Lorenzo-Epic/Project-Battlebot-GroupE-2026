@@ -78,7 +78,9 @@ unsigned long averageTicks() {
 }
 
 // Drive forward x cm, calculated with encoder ticks
-void driveForwardCm(int cm) {
+// int gripper 0 = gripper close
+// int gripper 1 = gripper open
+void driveForwardCmWithGripper(int cm, int gripper) {
 // Convert target cm into encoder ticks
   long targetTicks = (long)((float)cm * TICKS_PER_CM + 0.5f);
   if (targetTicks <= 0) {
@@ -87,6 +89,12 @@ void driveForwardCm(int cm) {
 
   resetEncoders();
   driveForwardCalibrated();
+  if (gripper == 0) {
+    closeGripper();
+  } else {
+    openGripper();
+  }
+  
 
 // Stop when ticks exceeded
   while (true) {
@@ -101,16 +109,26 @@ void driveForwardCm(int cm) {
 // ---------------- Servo pulses ----------------
 // Sends one servo pulse (and waits out the 20ms frame)
 void servoPulse(int pulseUs) {
-  digitalWrite(SERVO_PIN, HIGH);
-  delayMicroseconds(pulseUs);
-  digitalWrite(SERVO_PIN, LOW);
-  delay(20);
+  static unsigned long timer;
+  static int pulse;
+  if (millis() > timer) {
+    if (pulseUs > 0) {
+      pulse = pulseUs;
+    } else {
+      pulseUs = pulse;
+    }
+    digitalWrite(SERVO_PIN, HIGH); ///HIGH
+    delayMicroseconds(pulse);
+    digitalWrite(SERVO_PIN, LOW);
+    timer = millis() + 20;
+  }
 }
 
 // Hold gripper at a position for ~1 second by repeating pulses
 void setGripperFor1s(int pulseUs) {
-  for (int i = 0; i < 50; i++) { // 50 * 20ms = ~1000ms  
+  for (int i = 0; i < 1000; i++) {
     servoPulse(pulseUs);
+    delay(1);
   }
 }
 
@@ -142,6 +160,7 @@ void setup() {
 }
 
 void loop() {
+  
   // make sure its closed first
   closeGripper();
 
@@ -153,11 +172,13 @@ void loop() {
   openGripper();
 
   // drive towards cone
-  driveForwardCm(25);
+  driveForwardCmWithGripper(25, 1);
 
+  delay(3000);
   // grab cone
   closeGripper();
-
+  
+  delay(3000);
   // drive 25 more cm
-  driveForwardCm(25);
+  driveForwardCmWithGripper(25, 0);
 }
