@@ -1,138 +1,305 @@
-#include <Arduino.h>
+//distance between walls is 30cm
+//robot is about 15cm wide (18 to be more precise)
+// robot should stop every 60cm to check where it can go, if can go left it will always go left
 
-// pins for motor
-const int LEFT_MOTOR_PWM = 11;
-const int LEFT_MOTOR_DIR = A1;
-const int RIGHT_MOTOR_PWM = 9;
-const int RIGHT_MOTOR_DIR = A0;
+#include <Adafruit_NeoPixel.h>
 
-// setup for line sensor
-const int NUM_SENSORS = 8;
-const int LINE_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7}; // adjust if needed
-int sensorWeights[NUM_SENSORS] = {-4000,-2500,-500,-500,500,500,2500,4000};
-int weights[NUM_SENSORS] = {-237, -233, -224, -257, -250, -266, -287, -303}; // calibration
-int sensorValues[NUM_SENSORS];
+/* ================= STATE ================= */
+boolean isStartSequenceActive = false;
+boolean isMazeNavigationActive = false;
 
-// first plus ultra sensor 
-#define TRIG_PIN 7
-#define ECHO_PIN 10
-int distanceFront = 0;
+/* ================= LINE SENSORS ================= */
+const int LINE_SENSOR_PINS[] = {A0, A1, A2, A3, A4, A5, A6, A7};
+#define BLACK_LINE_THRESHOLD 500
 
-// pid
-float Kp = 0.05; // proportional
-float Ki = 0.0;  // integral
-float Kd = 0.02; // derivative
+/* ================= SERVO ================= */
+#define SERVO_PIN 11
+#define GRIPPER_OPEN_US 1820
+#define GRIPPER_CLOSE_US 1000
+#define SERVO_CYCLE_REPEAT 10
 
-float lastError = 0;
-float integral = 0;
+/* ================= DISTANCE SENSOR CLASS ================= */
+class DistanceSensor
+{
+  private:
+    int trigPin;
+    int echoPin;
+    const int MAX_DISTANCE = 100;
 
-// klancker contorl
-int baseSpeed = 120; // motor speed (0-255)
-int turnSpeed = 80;
+    float getPulseDuration()
+    {
+      digitalWrite(trigPin, LOW);
+      delayMicroseconds(2);
+      digitalWrite(trigPin, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(trigPin, LOW);
+      return pulseIn(echoPin, HIGH, 60 * MAX_DISTANCE);
+    }
 
-// setup
-void setup() {
-  Serial.begin(9600);
+    float getProcessedDistance()
+    {
+      float pulse = getPulseDuration();
+      if (pulse > 100)
+        return (pulse * 0.0343) / 2.0;
+      return MAX_DISTANCE;
+    }
 
-  // motor pins
-  pinMode(LEFT_MOTOR_PWM, OUTPUT);
-  pinMode(LEFT_MOTOR_DIR, OUTPUT);
-  pinMode(RIGHT_MOTOR_PWM, OUTPUT);
-  pinMode(RIGHT_MOTOR_DIR, OUTPUT);
+  public:
+    DistanceSensor(int tPin, int ePin)
+    {
+      trigPin = tPin;
+      echoPin = ePin;
+      pinMode(trigPin, OUTPUT);
+      digitalWrite(trigPin, LOW);
+      pinMode(echoPin, INPUT);
+    }
 
-  // mine sensors
-  for(int i=0;i<NUM_SENSORS;i++){
-    pinMode(LINE_PINS[i], INPUT);
+    double getCurrentDistance(int sampleNum = 7)
+    {
+      if (sampleNum < 3) sampleNum = 3;
+      if (sampleNum > 15) sampleNum = 15;
+
+      float samples[15];
+
+      for (int i = 0; i < sampleNum; i++)
+        samples[i] = getProcessedDistance();
+
+      // insertion sort
+      for (int i = 1; i < sampleNum; i++)
+      {
+        float key = samples[i];
+        int j = i - 1;
+        while (j >= 0 && samples[j] > key)
+        {
+          samples[j + 1] = samples[j];
+          j--;
+        }
+        samples[j + 1] = key;
+      }
+
+      // remove smallest and largest
+      float sum = 0;
+      for (int i = 1; i < sampleNum - 1; i++)
+        sum += samples[i];
+
+      return sum / (sampleNum - 2);
+    }
+};
+
+/* ================= DISTANCE SENSORS ================= */
+DistanceSensor distanceSensorFront(4, 7);
+DistanceSensor distanceSensorLeft(8, 13);
+int distanceFront;
+int distanceLeft;
+
+/* ================= MOTORS ================= */
+#define LEFT_FORWARD_PIN 5
+#define LEFT_BACKWARD_PIN 10
+#define RIGHT_FORWARD_PIN 6
+#define RIGHT_BACKWARD_PIN 9
+#define MOTOR_STALL_TIMEOUT 1700
+#define MAX_MOTOR_SPEED 255
+
+/* ================= ENCODERS ================= */
+#define ROTATION_LEFT_PIN 2
+#define RIGHT_ENCODER_PIN 3
+volatile int leftEncoderCount = 0;
+volatile int rightEncoderCount = 0;
+
+/* ================= LED ================= */
+#define NEOPIXEL_PIN 12
+Adafruit_NeoPixel statusLEDs(4, NEOPIXEL_PIN, NEO_RGB + NEO_KHZ800);
+
+const uint32_t LED_COLOR_RED = statusLEDs.Color(255, 0, 0);
+const uint32_t LED_COLOR_YELLOW = statusLEDs.Color(255, 150, 0);
+const uint32_t LED_COLOR_BLUE = statusLEDs.Color(0, 0, 255);
+const uint32_t LED_COLOR_WHITE = statusLEDs.Color(255, 255, 255);
+
+/* ================= HELPER FUNCTIONS ================= */
+
+void updateFrontDistance() {
+  distanceFront = distanceSensorFront.getCurrentDistance();
+}
+
+void updateLeftDistance() {
+  distanceLeft = distanceSensorLeft.getCurrentDistance();
+}
+
+void setupMotorPins() {
+  pinMode(LEFT_FORWARD_PIN, OUTPUT);
+  pinMode(LEFT_BACKWARD_PIN, OUTPUT);
+  pinMode(RIGHT_FORWARD_PIN, OUTPUT);
+  pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
+}
+
+void stopMotors() {
+  analogWrite(LEFT_FORWARD_PIN, 0);
+  analogWrite(LEFT_BACKWARD_PIN, 0);
+  analogWrite(RIGHT_FORWARD_PIN, 0);
+  analogWrite(RIGHT_BACKWARD_PIN, 0);
+}
+
+void driveForward() {
+  analogWrite(LEFT_FORWARD_PIN, MAX_MOTOR_SPEED * 0.9);
+  analogWrite(RIGHT_FORWARD_PIN, MAX_MOTOR_SPEED);
+}
+
+void driveBackwards() {
+  analogWrite(LEFT_BACKWARD_PIN, MAX_MOTOR_SPEED);
+  analogWrite(RIGHT_BACKWARD_PIN, MAX_MOTOR_SPEED);
+}
+
+void turnLeft() {
+  analogWrite(RIGHT_FORWARD_PIN, MAX_MOTOR_SPEED * 0.8);
+}
+
+void rotate() {
+  analogWrite(LEFT_FORWARD_PIN, MAX_MOTOR_SPEED * 0.8);
+  analogWrite(RIGHT_BACKWARD_PIN, MAX_MOTOR_SPEED * 0.8);
+}
+
+/* ================= SERVO ================= */
+
+void setServo(int pulse) {
+  for (int i = 0; i < SERVO_CYCLE_REPEAT; i++) {
+    digitalWrite(SERVO_PIN, HIGH);
+    delayMicroseconds(pulse);
+    digitalWrite(SERVO_PIN, LOW);
+    delay(20);
+  }
+}
+
+void openGripper() {
+  setServo(GRIPPER_OPEN_US);
+}
+
+void closeGripper() {
+  setServo(GRIPPER_CLOSE_US);
+}
+
+/* ================= ENCODER ISR ================= */
+
+void CountEncoder1() { leftEncoderCount++; }
+void CountEncoder2() { rightEncoderCount++; }
+
+/* ================= MOVEMENT WITH ENCODERS ================= */
+
+void driveForwardOnPulses(int target) {
+  leftEncoderCount = 0;
+  rightEncoderCount = 0;
+
+  driveForward();
+
+  while (leftEncoderCount < target && rightEncoderCount < target) {
+    updateFrontDistance();
+    if (distanceFront < 15) break;
   }
 
-  // ultrasonic pins
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-}
-
-// the main oop
-void loop() {
-  readLineSensors();
-  readUltrasonic();
-
-  if(distanceFront < 15){
-    // wall detected: stop or rotate
-    stopMotors();
-    delay(200);
-    rotate180(); // simple rotation if wall detected tune later yada
-  } else {
-    followLinePID();
-  }
-}
-
-// line sensors reader
-void readLineSensors(){
-  for(int i=0;i<NUM_SENSORS;i++){
-    int raw = analogRead(LINE_PINS[i]);
-    sensorValues[i] = raw - weights[i]; // apply calibration later yada
-  }
-}
-
-// calculates the position of the line cant test idk if it works i hope it does
-float getLinePosition(){
-  long numerator = 0;
-  long denominator = 0;
-  for(int i=0;i<NUM_SENSORS;i++){
-    numerator += (long)sensorValues[i]*sensorWeights[i];
-    denominator += sensorValues[i];
-  }
-  if(denominator == 0) return 0; // line lost
-  return (float)numerator/denominator;
-}
-
-// pid of line folllowing since physical maze has that start line thingy
-void followLinePID(){
-  float position = getLinePosition();
-  float error = position;
-  integral += error;
-  float derivative = error - lastError;
-  float correction = Kp*error + Ki*integral + Kd*derivative;
-
-  int leftSpeed = baseSpeed + correction;
-  int rightSpeed = baseSpeed - correction;
-
-  // constrain motor speeds
-  leftSpeed = constrain(leftSpeed, 0, 255);
-  rightSpeed = constrain(rightSpeed, 0, 255);
-
-  analogWrite(LEFT_MOTOR_PWM, leftSpeed);
-  analogWrite(RIGHT_MOTOR_PWM, rightSpeed);
-  digitalWrite(LEFT_MOTOR_DIR, HIGH);
-  digitalWrite(RIGHT_MOTOR_DIR, HIGH);
-
-  lastError = error;
-}
-
-// ultrasonic sensor reader 
-void readUltrasonic(){
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-  long duration = pulseIn(ECHO_PIN, HIGH);
-  distanceFront = duration * 0.034 / 2; // convert to cm
-}
-
-// functions to control the mootr
-void stopMotors(){
-  analogWrite(LEFT_MOTOR_PWM, 0);
-  analogWrite(RIGHT_MOTOR_PWM, 0);
-}
-
-// 180 rotation (can replace with better shit later not that tunned im tired)
-void rotate180(){
-  analogWrite(LEFT_MOTOR_PWM, turnSpeed);
-  analogWrite(RIGHT_MOTOR_PWM, turnSpeed);
-  digitalWrite(LEFT_MOTOR_DIR, LOW); // reverse left
-  digitalWrite(RIGHT_MOTOR_DIR, HIGH); // forward right
-  delay(800); // adjust for robot rotation
   stopMotors();
+}
+
+void turnLeftOnPulses(int target) {
+  leftEncoderCount = 0;
+  rightEncoderCount = 0;
+
+  turnLeft();
+
+  while (rightEncoderCount < target) {
+    updateLeftDistance();
+    if (distanceLeft < 10) break;
+  }
+
+  stopMotors();
+}
+
+/* ================= BLACK ZONE ================= */
+
+boolean reachedBlackZone() {
+  int count = 0;
+  for (int i = 0; i < 8; i++)
+    if (analogRead(LINE_SENSOR_PINS[i]) > BLACK_LINE_THRESHOLD)
+      count++;
+  return count >= 6;
+}
+
+/* ================= SETUP ================= */
+
+void setup() {
+  setupMotorPins();
+  pinMode(SERVO_PIN, OUTPUT);
+
+  pinMode(ROTATION_LEFT_PIN, INPUT);
+  pinMode(RIGHT_ENCODER_PIN, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(ROTATION_LEFT_PIN), CountEncoder1, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER_PIN), CountEncoder2, CHANGE);
+
+  statusLEDs.begin();
+  statusLEDs.fill(LED_COLOR_BLUE, 0, 4);
+  statusLEDs.show();
+}
+
+/* ================= LOOP ================= */
+
+void loop() {
+
+  if (isMazeNavigationActive) {
+
+    updateFrontDistance();
+    updateLeftDistance();
+
+    if (reachedBlackZone()) {
+      stopMotors();
+      openGripper();
+      delay(300);
+      isMazeNavigationActive = false;
+      isStartSequenceActive = false;
+      return;
+    }
+
+    // improved thresholds for 30cm maze
+    if (distanceLeft > 20 && distanceFront > 18) {
+      turnLeftOnPulses(36);
+      delay(200);
+      driveForwardOnPulses(20);
+      turnLeftOnPulses(36);
+    }
+    else if (distanceFront > 18) {
+      driveForwardOnPulses(20);
+    }
+    else {
+      driveBackwards();
+      delay(100);
+      stopMotors();
+
+      unsigned long rotateStart = millis();
+      while (distanceFront < 18 && millis() - rotateStart < 3000) {
+        rotate();
+        updateFrontDistance();
+      }
+      stopMotors();
+    }
+  }
+
+  else {
+
+    updateFrontDistance();
+
+    if (!isStartSequenceActive && distanceFront < 30) {
+      openGripper();
+      delay(1500);
+      isStartSequenceActive = true;
+    }
+
+    if (isStartSequenceActive) {
+      driveForward();
+      delay(800);
+      closeGripper();
+      turnLeftOnPulses(36);
+      driveForwardOnPulses(70);
+      isMazeNavigationActive = true;
+    }
+  }
 }
 
 // what to improve now 
