@@ -174,11 +174,11 @@ void loop() {
   // drive towards cone
   driveForwardCmWithGripper(25, 1);
 
-  delay(3000);
+  delay(1000);
   // grab cone
   closeGripper();
   
-  delay(3000);
+  delay(1000);
   // drive 25 more cm
   driveForwardCmWithGripper(25, 0);
 }
