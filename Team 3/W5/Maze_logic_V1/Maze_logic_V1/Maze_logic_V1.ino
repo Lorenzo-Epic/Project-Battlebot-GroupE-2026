@@ -1,5 +1,5 @@
 #include <Adafruit_NeoPixel.h>
-
+// test
 // state
 boolean isStartSequenceActive = false;
 boolean isMazeNavigationActive = false;
