@@ -9,7 +9,7 @@ const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A1, A2, A3, A4};
 ///number of samples for the log
 const int SENSOR_SAMPLES_AMOUNT = 10;
 // sensor calibration
-int weights[NUM_SENSORS] = {-224, -257, -250, -266};
+int weights[NUM_SENSORS] = {-278, -313, -312, -293};
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
 long whiteAvgTotalAverage = 0;
@@ -268,7 +268,7 @@ bool outerAndCenterAllWhite() {
 
 // Drive forward slowly until condition met (keeps servo powered)
 void driveForwardUntilAllBlack() {
-  driveForwardCalibrated(2); // uses your PWM calibration
+  driveForwardCalibrated(1); // uses your PWM calibration WAS SLOW
   while (!allSensorsBlack()) {
     gripperUpdate();
   }
@@ -276,7 +276,7 @@ void driveForwardUntilAllBlack() {
 }
 
 void driveForwardUntilAllWhite() {
-  driveForwardCalibrated(2); // uses your PWM calibration
+  driveForwardCalibrated(1); // uses your PWM calibration WAS SLOW
   while (allSensorsBlack()) {
     gripperUpdate();
   }
@@ -339,9 +339,6 @@ void getAvgBlackOrWhite(int blackOrWhite) {
   else {
     Serial.println("Put robot on black!");
   }
-
-  // give user time to place robot
-  waitMs(5000);
 
   // take multiple runs and accumulate
   for (int run = 0; run < CALIB_RUNS; run++) {
@@ -599,6 +596,7 @@ void loop() {
     }
     lineSensorsCalibrated = true;
   }
+//  /THEN AT END OF LOOP MOVE FORWARD 2CM FOR SAFETY
 
   // ----------- NORMAL LINE FOLLOWING PHASE -----------
   baseSpeed = computeBaseSpeed();

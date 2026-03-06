@@ -1,6 +1,3 @@
-#include <string.h>
-
-// Pin mapping.
 const int LEFT_BACKWARD_PIN = 10;
 const int LEFT_FORWARD_PIN = 5;
 const int RIGHT_FORWARD_PIN = 6;
@@ -9,261 +6,253 @@ const int RIGHT_BACKWARD_PIN = 9;
 const int ROTATION_LEFT_PIN = 2;
 const int ROTATION_RIGHT_PIN = 3;
 
-// Motor PWM calibration.
-const int CALIBRATION_FORWARD_LEFT = 255;
-const int CALIBRATION_BACKWARD_LEFT = 255;
-const int CALIBRATION_FORWARD_RIGHT = 243;
-const int CALIBRATION_BACKWARD_RIGHT = 220;
+// Motor speeds for straight driving
+const int LEFT_FORWARD_SPEED = 255;
+const int LEFT_BACKWARD_SPEED = 255;
+const int RIGHT_FORWARD_SPEED = 235;
+const int RIGHT_BACKWARD_SPEED = 200;
 
-// Encoder and wheel geometry.
-const float WHEEL_DIAMETER_CM = 6.5f;
-const int SLOTS_PER_REV = 20;
-const int EDGES_PER_SLOT = 2;
-const int TICKS_PER_REV = SLOTS_PER_REV * EDGES_PER_SLOT;
-const float CIRCUMFERENCE_CM = PI * WHEEL_DIAMETER_CM;
-const float TICKS_PER_CM = (float)TICKS_PER_REV / CIRCUMFERENCE_CM;
+// Motor speeds for turning
+const int LEFT_TURN_SPEED = 210;
+const int RIGHT_TURN_SPEED = 200;
 
-// Ignore encoder edges that arrive too quickly.
-const unsigned long EDGE_MIN_US = 150;
+// Wheel and encoder values
+const float WHEEL_DIAMETER_CM = 6.5;
+const float WHEEL_CIRCUMFERENCE_CM = PI * WHEEL_DIAMETER_CM;
+const float TICKS_PER_REVOLUTION = 40.0;
+const float TICKS_PER_CM = TICKS_PER_REVOLUTION / WHEEL_CIRCUMFERENCE_CM;
 
-// Empirical turn calibration.
-const float TURN_SLOTS_FOR_90_DEG = 8.0f;
-const float TURN_TICKS_PER_DEG = (TURN_SLOTS_FOR_90_DEG * EDGES_PER_SLOT) / 90.0f;
-const float SINGLE_WHEEL_TURN_SCALE = 2.0f;
-const long TURN_SLOWDOWN_TICKS = 3;
+// Ignore encoder pulses that happen too quickly
+const unsigned long MINIMUM_EDGE_TIME_US = 150;
 
-// Lower PWM near turn target to reduce overshoot.
-const int TURN_SLOW_LEFT_FORWARD = 150;
-const int TURN_SLOW_LEFT_BACKWARD = 150;
-const int TURN_SLOW_RIGHT_FORWARD = 145;
-const int TURN_SLOW_RIGHT_BACKWARD = 135;
+// 90 degree turn calibration
+const int TURN_90_TARGET_TICKS = 32;
 
-// Shared by ISRs and main loop.
-volatile unsigned long g_leftTicks = 0;
-volatile unsigned long g_rightTicks = 0;
-volatile unsigned long g_lastLeftUs = 0;
-volatile unsigned long g_lastRightUs = 0;
+// Encoder counters
+volatile unsigned long leftTickCount = 0;
+volatile unsigned long rightTickCount = 0;
 
-static inline long roundToLong(float x) {
-  return (x >= 0.0f) ? (long)(x + 0.5f) : (long)(x - 0.5f);
-}
+// Time of previous encoder pulse
+volatile unsigned long lastLeftEdgeTime = 0;
+volatile unsigned long lastRightEdgeTime = 0;
 
-// Count each valid encoder edge.
-void isrLeft() {
-  unsigned long now = micros();
-  if (now - g_lastLeftUs >= EDGE_MIN_US) {
-    g_leftTicks++;
-    g_lastLeftUs = now;
+// Round a float to the nearest int by adding or removing 0.5 from the float because int to float doesn't round normally
+int roundFloatToInt(float value) {
+  if (value >= 0) {
+    return (int)(value + 0.5);
+  } else {
+    return (int)(value - 0.5);
   }
 }
 
-void isrRight() {
-  unsigned long now = micros();
-  if (now - g_lastRightUs >= EDGE_MIN_US) {
-    g_rightTicks++;
-    g_lastRightUs = now;
+// This function runs automatically every time the left encoder signal changes
+void leftEncoderInterrupt() {
+  unsigned long currentTime = micros();
+
+  if (currentTime - lastLeftEdgeTime >= MINIMUM_EDGE_TIME_US) {
+    leftTickCount = leftTickCount + 1;
+    lastLeftEdgeTime = currentTime;
   }
 }
 
-// Motor control helpers.
+// This function runs automatically every time the right encoder signal changes
+void rightEncoderInterrupt() {
+  unsigned long currentTime = micros();
+
+  if (currentTime - lastRightEdgeTime >= MINIMUM_EDGE_TIME_US) {
+    rightTickCount = rightTickCount + 1;
+    lastRightEdgeTime = currentTime;
+  }
+}
+
+// Reset both encoder counters to zero, turns interrupts off for writing to values then back on when function ends
+void resetEncoderCounts() {
+  noInterrupts(); 
+  leftTickCount = 0;
+  rightTickCount = 0;
+  lastLeftEdgeTime = 0;
+  lastRightEdgeTime = 0;
+  interrupts();
+}
+
+// Get current left encoder count, put it into value, and return value, because you cannot resume interrupts after a return
+unsigned long getLeftTicks() {
+  unsigned long value;
+
+  noInterrupts();
+  value = leftTickCount;
+  interrupts();
+
+  return value;
+}
+
+// Get current right encoder count
+unsigned long getRightTicks() {
+  unsigned long value;
+
+  noInterrupts();
+  value = rightTickCount;
+  interrupts();
+
+  return value;
+}
+
+// Stop all motors
 void stopMotors() {
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
-
-  digitalWrite(LEFT_FORWARD_PIN, LOW);
-  digitalWrite(LEFT_BACKWARD_PIN, LOW);
-  digitalWrite(RIGHT_FORWARD_PIN, LOW);
-  digitalWrite(RIGHT_BACKWARD_PIN, LOW);
 }
 
-void driveForward() {
+// Start moving forward
+void startForwardMotion() {
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
 
-  analogWrite(LEFT_FORWARD_PIN, CALIBRATION_FORWARD_LEFT);
-  analogWrite(RIGHT_FORWARD_PIN, CALIBRATION_FORWARD_RIGHT);
+  analogWrite(LEFT_FORWARD_PIN, LEFT_FORWARD_SPEED);
+  analogWrite(RIGHT_FORWARD_PIN, RIGHT_FORWARD_SPEED);
 }
 
-void driveBackward() {
+// Start moving backward
+void startBackwardMotion() {
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
 
-  analogWrite(LEFT_BACKWARD_PIN, CALIBRATION_BACKWARD_LEFT);
-  analogWrite(RIGHT_BACKWARD_PIN, CALIBRATION_BACKWARD_RIGHT);
+  analogWrite(LEFT_BACKWARD_PIN, LEFT_BACKWARD_SPEED);
+  analogWrite(RIGHT_BACKWARD_PIN, RIGHT_BACKWARD_SPEED);
 }
 
-void blockLeftWheel() {
-  analogWrite(LEFT_FORWARD_PIN, 255);
-  analogWrite(LEFT_BACKWARD_PIN, 255);
-}
-
-void blockRightWheel() {
-  analogWrite(RIGHT_FORWARD_PIN, 255);
-  analogWrite(RIGHT_BACKWARD_PIN, 255);
-}
-
-void turnLeftInPlace() {
-  // Inside wheel (left) actively blocked, outside wheel (right) drives forward.
-  blockLeftWheel();
+// Start turning left
+void startLeftTurn() {
   analogWrite(RIGHT_BACKWARD_PIN, 0);
-  analogWrite(RIGHT_FORWARD_PIN, CALIBRATION_FORWARD_RIGHT);
+  analogWrite(RIGHT_FORWARD_PIN, RIGHT_TURN_SPEED);
 }
 
-void turnRightInPlace() {
-  // Inside wheel (right) actively blocked, outside wheel (left) drives forward.
-  blockRightWheel();
+// Start turning right
+void startRightTurn() {
   analogWrite(LEFT_BACKWARD_PIN, 0);
-  analogWrite(LEFT_FORWARD_PIN, CALIBRATION_FORWARD_LEFT);
+  analogWrite(LEFT_FORWARD_PIN, LEFT_TURN_SPEED);
 }
 
-// Read tick counters atomically because ISRs update them.
-void readTicks(unsigned long &l, unsigned long &r) {
-  noInterrupts();
-  l = g_leftTicks;
-  r = g_rightTicks;
-  interrupts();
-}
+// Move forward a given distance in centimeters
+void moveForwardCm(float distanceCm) {
+  int targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
 
-void resetTicks() {
-  noInterrupts();
-  g_leftTicks = 0;
-  g_rightTicks = 0;
-  g_lastLeftUs = 0;
-  g_lastRightUs = 0;
-  interrupts();
-}
-
-void move(float amount, const char *direction) {
-  // Input units:
-  // - "forward" / "backward": amount is cm.
-  // - "left" / "right": amount is robot deg.
-  // Conversion math:
-  // - Drive ticks = cm * TICKS_PER_CM.
-  // - Turn ticks = deg * TURN_TICKS_PER_DEG * SINGLE_WHEEL_TURN_SCALE.
-  const bool IS_DRIVE = (strcmp(direction, "forward") == 0) || (strcmp(direction, "backward") == 0);
-  const bool IS_TURN = (strcmp(direction, "left") == 0) || (strcmp(direction, "right") == 0);
-  if (!IS_DRIVE && !IS_TURN) return;
-
-  const float ABS_AMOUNT = (amount >= 0.0f) ? amount : -amount;
-
-  long targetTicks = 0;
-  if (IS_DRIVE) {
-    targetTicks = roundToLong(ABS_AMOUNT * TICKS_PER_CM);
-  } else {
-    // One-wheel pivot needs roughly double wheel travel vs in-place spin.
-    targetTicks = roundToLong(ABS_AMOUNT * TURN_TICKS_PER_DEG * SINGLE_WHEEL_TURN_SCALE);
+  if (targetTicks <= 0) {
+    return;
   }
 
-  if (targetTicks <= 0) return;
-
-  // Measure only this move command.
-  resetTicks();
-
-  // Apply direction-specific motor pattern.
-  if (strcmp(direction, "forward") == 0) {
-    driveForward();
-  } else if (strcmp(direction, "backward") == 0) {
-    driveBackward();
-  } else if (strcmp(direction, "left") == 0) {
-    turnLeftInPlace();
-  } else if (strcmp(direction, "right") == 0) {
-    turnRightInPlace();
-  }
-
-  // Timeout scales with target distance/angle to fail safe on bad sensor reads.
-  const unsigned long START_MS = millis();
-  const unsigned long TIMEOUT_MS = IS_TURN
-    ? (700UL + (unsigned long)targetTicks * 80UL)
-    : (1500UL + (unsigned long)targetTicks * 120UL);
-
-  bool slowPhase = false;
+  resetEncoderCounts();
+  startForwardMotion();
 
   while (true) {
-    unsigned long l, r;
-    readTicks(l, r);
+    unsigned long leftValue = getLeftTicks();
+    unsigned long rightValue = getRightTicks();
+    unsigned long averageTicks = (leftValue + rightValue) / 2;
 
-    // For turns, track only the moving outside wheel.
-    unsigned long progress = (l + r) / 2;
-    if (IS_TURN) {
-      progress = (strcmp(direction, "left") == 0) ? r : l;
+    if (averageTicks >= (unsigned long)targetTicks) {
+      break;
     }
-    long remainingTicks = targetTicks - (long)progress;
-
-    // For turns, reduce PWM for the final ticks to reduce momentum overshoot.
-    if (IS_TURN && !slowPhase && remainingTicks <= TURN_SLOWDOWN_TICKS) {
-      slowPhase = true;
-
-      if (strcmp(direction, "left") == 0) {
-        blockLeftWheel();
-        analogWrite(RIGHT_BACKWARD_PIN, 0);
-        analogWrite(RIGHT_FORWARD_PIN, TURN_SLOW_RIGHT_FORWARD);
-      } else if (strcmp(direction, "right") == 0) {
-        blockRightWheel();
-        analogWrite(LEFT_BACKWARD_PIN, 0);
-        analogWrite(LEFT_FORWARD_PIN, TURN_SLOW_LEFT_FORWARD);
-      }
-    }
-
-    if ((long)progress >= targetTicks) break;
-    if (millis() - START_MS > TIMEOUT_MS) break;
   }
 
   stopMotors();
+}
 
-  // Debug print helps tune calibration constants.
-  unsigned long l, r;
-  readTicks(l, r);
-  Serial.print("Move ");
-  Serial.print(direction);
-  Serial.print(" targetTicks=");
-  Serial.print(targetTicks);
-  Serial.print(" L=");
-  Serial.print(l);
-  Serial.print(" R=");
-  Serial.println(r);
+// Move backward a given distance in centimeters
+void moveBackwardCm(float distanceCm) {
+  int targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
+
+  if (targetTicks <= 0) {
+    return;
+  }
+
+  resetEncoderCounts();
+  startBackwardMotion();
+
+  while (true) {
+    unsigned long leftValue = getLeftTicks();
+    unsigned long rightValue = getRightTicks();
+    unsigned long averageTicks = (leftValue + rightValue) / 2;
+
+    if (averageTicks >= (unsigned long)targetTicks) {
+      break;
+    }
+  }
+
+  stopMotors();
+}
+
+// Turn left by about 90 degrees
+void turnLeft90Degrees() {
+  int targetTicks = TURN_90_TARGET_TICKS;
+
+  resetEncoderCounts();
+  startLeftTurn();
+
+  while (true) {
+    unsigned long rightValue = getRightTicks();
+
+    // During a left turn, the right wheel is the moving wheel
+    if (rightValue >= (unsigned long)targetTicks) {
+      break;
+    }
+  }
+
+  stopMotors();
+}
+
+// Turn right by about 90 degrees
+void turnRight90Degrees() {
+  int targetTicks = TURN_90_TARGET_TICKS;
+
+  resetEncoderCounts();
+  startRightTurn();
+
+  while (true) {
+    unsigned long leftValue = getLeftTicks();
+
+    // During a right turn, the left wheel is the moving wheel
+    if (leftValue >= (unsigned long)targetTicks) {
+      break;
+    }
+  }
+
+  stopMotors();
 }
 
 void setup() {
   Serial.begin(9600);
 
-  pinMode(LEFT_FORWARD_PIN, OUTPUT);
   pinMode(LEFT_BACKWARD_PIN, OUTPUT);
+  pinMode(LEFT_FORWARD_PIN, OUTPUT);
   pinMode(RIGHT_FORWARD_PIN, OUTPUT);
   pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
 
   pinMode(ROTATION_LEFT_PIN, INPUT_PULLUP);
   pinMode(ROTATION_RIGHT_PIN, INPUT_PULLUP);
 
-  const int LEFT_INTERRUPT = digitalPinToInterrupt(ROTATION_LEFT_PIN);
-  const int RIGHT_INTERRUPT = digitalPinToInterrupt(ROTATION_RIGHT_PIN);
-  if (LEFT_INTERRUPT == NOT_AN_INTERRUPT || RIGHT_INTERRUPT == NOT_AN_INTERRUPT) {
-    Serial.println("ERROR: rotation pins must support external interrupts.");
-    stopMotors();
-    while (true) {
-      delay(1000);
-    }
-  }
+  // Converts encoder pin numbers into interrupt pins which are needed by attach interrupt
+  int leftInterruptPin = digitalPinToInterrupt(ROTATION_LEFT_PIN);
+  int rightInterruptPin = digitalPinToInterrupt(ROTATION_RIGHT_PIN);
 
-  attachInterrupt(LEFT_INTERRUPT, isrLeft, CHANGE);
-  attachInterrupt(RIGHT_INTERRUPT, isrRight, CHANGE);
+  // when there is a change in the encoder pins, call the function leftEncoderInterrupt or rightEncoderInterrupt respectively
+  attachInterrupt(leftInterruptPin, leftEncoderInterrupt, CHANGE);
+  attachInterrupt(rightInterruptPin, rightEncoderInterrupt, CHANGE);
 
   stopMotors();
 }
 
 void loop() {
-//  /if you move forward or backwards, unit is in CM
-///if you move left or right, unit is in degrees
-  move(100, "forward");
+  moveForwardCm(100);
   delay(1000);
 
-  move(100, "backward");
+  moveBackwardCm(100);
   delay(1000);
 
-  move(90, "left");
+  turnLeft90Degrees();
   delay(1000);
 
-  move(90, "right");
+  turnRight90Degrees();
   delay(1000);
 }

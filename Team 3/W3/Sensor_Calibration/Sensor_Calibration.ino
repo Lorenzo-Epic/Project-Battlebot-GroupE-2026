@@ -1,12 +1,12 @@
 // Pin mapping.
-const int NUM_SENSORS = 8;
-const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A3, A4, A5, A6, A7};
+const int NUM_SENSORS = 4;
+const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A1, A2, A3, A4};
 
 ///Light sensors
 ///number of samples for the log
 const int SENSOR_SAMPLES_AMOUNT = 67;
 ///sensor calibration
-int weights[NUM_SENSORS] = {0, 0, 0, 0, 0, 0, 0, 0};
+int weights[NUM_SENSORS] = {0, 0, 0, 0};
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
 long whiteAvgTotalAverage = 0;
@@ -166,7 +166,7 @@ void calculateLightSensorsCalibration() {
 void setup() {
   Serial.begin(9600);
   
-  for (int i = 0; i < 8; i++) pinMode(LIGHT_SENSOR_PINS[i], INPUT);
+  for (int i = 0; i < NUM_SENSORS; i++) pinMode(LIGHT_SENSOR_PINS[i], INPUT);
 
 }
 
