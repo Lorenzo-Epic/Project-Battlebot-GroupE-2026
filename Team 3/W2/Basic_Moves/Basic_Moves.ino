@@ -174,6 +174,40 @@ void startRightTurn() {
   analogWrite(LEFT_FORWARD_PIN, LEFT_TURN_SPEED);
 }
 
+// direction = 1 = forward
+void correctMotorSpeeds(int baseSpeed, int direction) {
+
+// See how much the wheel rotations have differed
+  int difference = getRightTicks() - getLeftTicks();
+// If left is going faster, this returns a negative number
+
+// Multiplied difference (difference between ticks * X) is the difference that will be written to PWM
+  difference = (difference * 35);
+
+// Slow down right and speed up left (because right is the stronger motor)
+  int rightSpeed = baseSpeed - difference;
+  int leftSpeed = baseSpeed + difference;
+
+// Constrain corrected speed between 0 and 255
+  rightSpeed = constrain(rightSpeed, 0, 255);
+  leftSpeed = constrain(leftSpeed, 0, 255);
+
+// Write corrected speeds to motors
+  if (direction == 1) {
+    analogWrite(LEFT_BACKWARD_PIN, 0);
+    analogWrite(RIGHT_BACKWARD_PIN, 0);
+
+    analogWrite(LEFT_FORWARD_PIN, leftSpeed);
+    analogWrite(RIGHT_FORWARD_PIN, rightSpeed);
+  } else {
+    analogWrite(LEFT_FORWARD_PIN, 0);
+    analogWrite(RIGHT_FORWARD_PIN, 0);
+
+    analogWrite(LEFT_BACKWARD_PIN, leftSpeed);
+    analogWrite(RIGHT_BACKWARD_PIN, rightSpeed);
+  }
+}
+
 // Move forward a given distance in centimeters
 void moveForwardCm(float distanceCm) {
   int targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
@@ -189,6 +223,7 @@ void moveForwardCm(float distanceCm) {
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
+    correctMotorSpeeds(240, 1);
 
     if (averageTicks >= (unsigned long)targetTicks) {
       break;
@@ -213,6 +248,7 @@ void moveBackwardCm(float distanceCm) {
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
+    correctMotorSpeeds(240, 0);
 
     if (averageTicks >= (unsigned long)targetTicks) {
       break;
