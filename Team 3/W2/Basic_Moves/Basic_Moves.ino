@@ -1,6 +1,7 @@
+///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 const int LEFT_BACKWARD_PIN = 10;
-const int LEFT_FORWARD_PIN = 5;
-const int RIGHT_FORWARD_PIN = 6;
+const int LEFT_FORWARD_PIN = 7;
+const int RIGHT_FORWARD_PIN = 11;
 const int RIGHT_BACKWARD_PIN = 9;
 
 const int ROTATION_LEFT_PIN = 2;
@@ -9,7 +10,7 @@ const int ROTATION_RIGHT_PIN = 3;
 // Motor speeds for straight driving
 const int LEFT_FORWARD_SPEED = 255;
 const int LEFT_BACKWARD_SPEED = 255;
-const int RIGHT_FORWARD_SPEED = 235;
+const int RIGHT_FORWARD_SPEED = 223;
 const int RIGHT_BACKWARD_SPEED = 200;
 
 // Motor speeds for turning
@@ -22,13 +23,13 @@ const float WHEEL_CIRCUMFERENCE_CM = PI * WHEEL_DIAMETER_CM;
 const float TICKS_PER_REVOLUTION = 40.0;
 const float TICKS_PER_CM = TICKS_PER_REVOLUTION / WHEEL_CIRCUMFERENCE_CM;
 
-// Ignore encoder pulses that happen too quickly
+// Ignore encoder pulses that happen too quickly (unsigned long because it's what micros() uses)
 const unsigned long MINIMUM_EDGE_TIME_US = 150;
 
 // 90 degree turn calibration
 const int TURN_90_TARGET_TICKS = 32;
 
-// Encoder counters
+// Encoder counters (volatile to ensure it's always upated)
 volatile unsigned long leftTickCount = 0;
 volatile unsigned long rightTickCount = 0;
 
@@ -36,6 +37,44 @@ volatile unsigned long rightTickCount = 0;
 volatile unsigned long lastLeftEdgeTime = 0;
 volatile unsigned long lastRightEdgeTime = 0;
 
+void setup() {
+  Serial.begin(9600);
+
+///~~~~~~~~~~~~~~~~~~~~~~ MOTORS SETUP ~~~~~~~~~~~~~~~~~~~~~~
+  pinMode(LEFT_BACKWARD_PIN, OUTPUT);
+  pinMode(LEFT_FORWARD_PIN, OUTPUT);
+  pinMode(RIGHT_FORWARD_PIN, OUTPUT);
+  pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
+
+  pinMode(ROTATION_LEFT_PIN, INPUT_PULLUP);
+  pinMode(ROTATION_RIGHT_PIN, INPUT_PULLUP);
+
+  // Converts encoder pin numbers into interrupt pins which are needed by attach interrupt
+  int leftInterruptPin = digitalPinToInterrupt(ROTATION_LEFT_PIN);
+  int rightInterruptPin = digitalPinToInterrupt(ROTATION_RIGHT_PIN);
+
+  // when there is a change in the encoder pins, call the function leftEncoderInterrupt or rightEncoderInterrupt respectively
+  attachInterrupt(leftInterruptPin, leftEncoderInterrupt, CHANGE);
+  attachInterrupt(rightInterruptPin, rightEncoderInterrupt, CHANGE);
+
+  stopMotors();
+}
+
+void loop() {
+  moveForwardCm(100);
+  delay(1000);
+
+  moveBackwardCm(100);
+  delay(1000);
+
+  turnLeft90Degrees();
+  delay(1000);
+
+  turnRight90Degrees();
+  delay(1000);
+}
+
+///~~~~~~~~~~~~~~~~~~~~~~ MOTORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
 // Round a float to the nearest int by adding or removing 0.5 from the float because int to float doesn't round normally
 int roundFloatToInt(float value) {
   if (value >= 0) {
@@ -77,7 +116,7 @@ void resetEncoderCounts() {
 
 // Get current left encoder count, put it into value, and return value, because you cannot resume interrupts after a return
 unsigned long getLeftTicks() {
-  unsigned long value;
+  long value;
 
   noInterrupts();
   value = leftTickCount;
@@ -219,40 +258,4 @@ void turnRight90Degrees() {
   }
 
   stopMotors();
-}
-
-void setup() {
-  Serial.begin(9600);
-
-  pinMode(LEFT_BACKWARD_PIN, OUTPUT);
-  pinMode(LEFT_FORWARD_PIN, OUTPUT);
-  pinMode(RIGHT_FORWARD_PIN, OUTPUT);
-  pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
-
-  pinMode(ROTATION_LEFT_PIN, INPUT_PULLUP);
-  pinMode(ROTATION_RIGHT_PIN, INPUT_PULLUP);
-
-  // Converts encoder pin numbers into interrupt pins which are needed by attach interrupt
-  int leftInterruptPin = digitalPinToInterrupt(ROTATION_LEFT_PIN);
-  int rightInterruptPin = digitalPinToInterrupt(ROTATION_RIGHT_PIN);
-
-  // when there is a change in the encoder pins, call the function leftEncoderInterrupt or rightEncoderInterrupt respectively
-  attachInterrupt(leftInterruptPin, leftEncoderInterrupt, CHANGE);
-  attachInterrupt(rightInterruptPin, rightEncoderInterrupt, CHANGE);
-
-  stopMotors();
-}
-
-void loop() {
-  moveForwardCm(100);
-  delay(1000);
-
-  moveBackwardCm(100);
-  delay(1000);
-
-  turnLeft90Degrees();
-  delay(1000);
-
-  turnRight90Degrees();
-  delay(1000);
 }
