@@ -1,29 +1,28 @@
 // pins 
-const int LEFT_FORWARD_PIN  = 7;
+const int LEFT_FORWARD_PIN  = 3;
 const int LEFT_BACKWARD_PIN = 10;
 const int RIGHT_FORWARD_PIN = 11;
 const int RIGHT_BACKWARD_PIN = 9;
 
 int motorSpeed = 150;
 
-
-// ultrasonic headhog
-//sensors r prob wrong cause i dont have the pins at home
+// ultrasonic 
 // front
-const int TRIG_FRONT = 2;
-const int ECHO_FRONT = 3;
+const int TRIG_FRONT = 12;
+const int ECHO_FRONT = 13;
 // leftie
-const int TRIG_LEFT = 4;
-const int ECHO_LEFT = 5;
+const int TRIG_LEFT = 7;
+const int ECHO_LEFT = 4;
 // right
-const int TRIG_RIGHT = 6;
+const int TRIG_RIGHT = A3;
 const int ECHO_RIGHT = 8;
 
 // distance to wall
 const int WALL_DISTANCE = 20; // cm
+const int TOO_CLOSE_TO_WALLS = 8; // cm
+
 
 // setup
-
 void setup() {
 
   Serial.begin(9600);
@@ -60,6 +59,26 @@ void loop() {
   Serial.print("  Right: ");
   Serial.println(rightDistance);
 
+  // small adjustment if too close to wall
+  if(leftDistance < TOO_CLOSE_TO_WALLS) 
+  {
+    // turn slightly right
+    analogWrite(LEFT_FORWARD_PIN, motorSpeed);
+    analogWrite(RIGHT_FORWARD_PIN, 0);
+    analogWrite(RIGHT_BACKWARD_PIN, motorSpeed);
+    delay(80);
+    stopMotors();
+  }
+  
+  if(rightDistance < TOO_CLOSE_TO_WALLS)
+  {
+  // turn slightly left
+    analogWrite(LEFT_BACKWARD_PIN, motorSpeed);
+    analogWrite(RIGHT_FORWARD_PIN, motorSpeed);
+    delay(80);
+    stopMotors();
+  }
+
   // follows the left wall all the time
 
   if(leftDistance > WALL_DISTANCE) 
@@ -86,42 +105,38 @@ void loop() {
 }
 
 // functions for ultrasonic
-
 float getDistance(int trigPin, int echoPin) 
 {
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(5);
+  delayMicroseconds(50);
 
   digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
+  delayMicroseconds(100);
 
   digitalWrite(trigPin, LOW);
 
   long duration = pulseIn(echoPin, HIGH);
-
-  float distance = duration * 0.034 / 2;
+// this is speed of sound by microseconds so: distance (cm) = duration (µs/microseconds)* 0.017
+// 0.017 is speed of sound already divided by 2, so instead of 0.034 its 0.017
+  float distance = duration * 0.017; 
 
   return distance;
 }
 
-
 // movements
-
-void moveForward() 
-{
+void moveForward() {
   analogWrite(LEFT_FORWARD_PIN, motorSpeed);
   analogWrite(LEFT_BACKWARD_PIN, 0);
 
   analogWrite(RIGHT_FORWARD_PIN, motorSpeed);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
 
-  delay(350);
+  delay(400);
 
   stopMotors();
 }
 
-void turnLeft90() 
-{
+void turnLeft90() {
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, motorSpeed);
 
@@ -133,8 +148,7 @@ void turnLeft90()
   stopMotors();
 }
 
-void turnRight90()
-{
+void turnRight90(){
   analogWrite(LEFT_FORWARD_PIN, motorSpeed);
   analogWrite(LEFT_BACKWARD_PIN, 0);
 
@@ -146,8 +160,7 @@ void turnRight90()
   stopMotors();
 }
 
-void stopMotors()
-{
+void stopMotors(){
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
 
