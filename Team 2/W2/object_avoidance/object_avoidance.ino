@@ -37,8 +37,10 @@ void stopMotors() {
 }
 
 void forward(int spd) {
-  analogWrite(LEFT_FWD, spd); analogWrite(LEFT_BWD, 0);
-  analogWrite(RIGHT_FWD, spd); analogWrite(RIGHT_BWD, 0);
+  analogWrite(LEFT_FWD, spd);
+  analogWrite(LEFT_BWD, 0);
+  analogWrite(RIGHT_FWD, spd); 
+  analogWrite(RIGHT_BWD, 0);
 }
 
 void turnRight() {
