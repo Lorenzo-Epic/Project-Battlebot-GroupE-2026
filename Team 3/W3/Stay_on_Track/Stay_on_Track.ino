@@ -1,115 +1,175 @@
 // pin mapping
-const int LEFT_FORWARD_PIN  = 7;
+const int LEFT_FORWARD_PIN  = 3;
 const int LEFT_BACKWARD_PIN = 10;
 const int RIGHT_FORWARD_PIN = 11;
 const int RIGHT_BACKWARD_PIN = 9;
 
 // D1 = A0, D2 = A1, D3 = A2, D4 = A3, D5 = A4, D6 = A5, D7 = A6, D8 = A7
-const int numberOfSensors = 8;
-const int lineSensor[numberOfSensors] = {A0, A1, A2, A3, A4, A5, A6, A7};
-int lineValues[numberOfSensors]; // this keeps the sensor readings of the moment
-
+const int NUM_SENSORS = 7;
+const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A4, A5, A6, A7};
+int lineValues[NUM_SENSORS]; // this keeps the sensor readings of the moment
+/// pin A3 is used for trig sensor right ultrasound sensor
 // sensor calibration
-int weights[numberOfSensors] = {-237, -233, -224, -257, -250, -266, -287, -303};
+int weights[NUM_SENSORS] = {-273, -264, -253, -250, -276, -309, -322};
 
 // thresholds
 const int LIGHT_SENSOR_WHITE_THRESHOLD = 400;
 const int LIGHT_SENSOR_BLACK_THRESHOLD = 600;
 
+// for hysterysis, remembers what the sensor's last value was
+bool sensorBlack[NUM_SENSORS] = {false};
+
+// sensors declared here for flexibility from array
+const int RIGHT_OUTER_SENSOR = 0;
+const int RIGHT_MIDDLE_SENSOR = 1;
+const int RIGHT_INNER_SENSOR = 2;
+const int MIDDLE_SENSOR = 3;
+const int LEFT_OUTER_SENSOR = 4;
+const int LEFT_MIDDLE_SENSOR = 5;
+const int LEFT_INNER_SENSOR = 6;
+
+
 // speed settings
-int baseSpeed = 120;
-int correctionSpeed = 30;
-int recovoerySpeed = 150; //only used of line is completely lost
+const int SPEED_NONE = 230; //Speed for all sensors detecting white (means black line is perfectly in the center)
+const int SPEED_INNER = 200; //speed for when one of the inner sensors are on black
+const int SPEED_MIDDLE = 180; //speed for when one of the middle sensors (second to edge) are on black
+const int SPEED_EDGE = 0; //speed for when outer sensors (at the edge)are on black
+const int RECOVERY_SPEED = 200; //only used if line is completely lost
 
-//last black line detection
-bool lastBlackDetected = false; // can also be last joel detected
+const int CORRECTION_EDGE = 160;
+const int CORRECTION_MIDDLE = 105;
+const int CORRECTION_INNER = 75;
 
-// setup
+const int RIGHT_MOTOR_CALIBRATION = 0;
+const int LEFT_MOTOR_CALIBRATION = 25;
 
-void setup() 
-{
-
+void setup() {
   pinMode(LEFT_FORWARD_PIN, OUTPUT);
   pinMode(LEFT_BACKWARD_PIN, OUTPUT);
   pinMode(RIGHT_FORWARD_PIN, OUTPUT);
   pinMode(RIGHT_BACKWARD_PIN, OUTPUT);
 
-  for (int i = 0; i < numberOfSensors; i++) pinMode(lineSensor[i], INPUT);
-
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    pinMode(LINE_SENSOR_PINS[i], INPUT);
+  }
+  
   stopMotors();
 }
 
-// line sensor loop
-
 void loop() {
-  defaultLineSensor();
-  delay(10); // delay for some sensor stability
+  followTheLine();
 }
 
 // calibration function (corrects raw sensor values)
-int applyCalibration(int raw, int sensorIndex)
-{
+int applyCalibration(int raw, int sensorIndex) {
   int v = raw + weights[sensorIndex];
-  return constrain(v,0,1023);
+  return constrain(v, 0, 1023);
 }
 
-// line sensor logic void
-
-void defaultLineSensor() {
-  int maxSensorValue = 0;
+void followTheLine() {
 
   // Read reflection sensor values
-  for (int i = 0; i < numberOfSensors; i++) 
+  for (int i = 0; i < NUM_SENSORS; i++) 
   {
-    int raw = analogRead(lineSensor[i]);
+    int raw = analogRead(LINE_SENSOR_PINS[i]);
     lineValues[i] = applyCalibration(raw,i); // apply calibration before using the value
 
-    if(lineValues[i] > maxSensorValue) maxSensorValue = lineValues[i];
+/// Hysterisis logic, only update the sensor value as black if it goes past hysterisis
+    if (lineValues[i] >= LIGHT_SENSOR_BLACK_THRESHOLD) {
+      sensorBlack[i] = true;
+    }
+    else if (lineValues[i] <= LIGHT_SENSOR_WHITE_THRESHOLD) {
+      sensorBlack[i] = false;
+    }
   }
 
-  // this part decides movement
-  if(maxSensorValue >= LIGHT_SENSOR_BLACK_THRESHOLD) 
-  {
-    lastBlackDetected = true; // remembers last time black line was seen
+  // Convenience booleans, writes if the sensor is reading black or not (accounting for hysterisis too) to a boolean valye
+  bool leftOuterBlack = sensorBlack[LEFT_OUTER_SENSOR];
+  bool leftMiddleBlack = sensorBlack[LEFT_MIDDLE_SENSOR];
+  bool leftInnerBlack = sensorBlack[LEFT_INNER_SENSOR];
+  bool middleBlack = sensorBlack[MIDDLE_SENSOR];
+  bool rightInnerBlack = sensorBlack[RIGHT_INNER_SENSOR];
+  bool rightMiddleBlack = sensorBlack[RIGHT_MIDDLE_SENSOR];
+  bool rightOuterBlack = sensorBlack[RIGHT_OUTER_SENSOR];
 
-    // so center sensors see line then move forward
-    if(lineValues[3] >= LIGHT_SENSOR_BLACK_THRESHOLD || lineValues[4] >= LIGHT_SENSOR_BLACK_THRESHOLD) 
-    {
-      driveForward(baseSpeed + correctionSpeed, baseSpeed + correctionSpeed);
+// Convenience booleans for if any of the left or right sensors read as black
+  bool anyLeftBlack  = leftOuterBlack || leftMiddleBlack || leftInnerBlack;
+  bool anyRightBlack = rightOuterBlack || rightMiddleBlack || rightInnerBlack;
+
+///count how many sensors counted black
+  int blackCount = 0;
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    if (sensorBlack[i]) {
+      blackCount++;
+    }
+  }
+
+/// If all sensors are black
+  if (blackCount == NUM_SENSORS) {
+    driveForward(SPEED_NONE + LEFT_MOTOR_CALIBRATION, SPEED_NONE + RIGHT_MOTOR_CALIBRATION);
+    return;
+  }
+
+///if any right sensor and no left sensors
+    if (anyRightBlack && !anyLeftBlack) {
+      // EDGE FIRST
+      if(rightOuterBlack) {
+        driveForward(SPEED_EDGE + CORRECTION_EDGE + LEFT_MOTOR_CALIBRATION, SPEED_EDGE + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+
+      // THEN MIDDLE
+      else if(rightMiddleBlack) {
+        driveForward(SPEED_MIDDLE + CORRECTION_MIDDLE + LEFT_MOTOR_CALIBRATION, SPEED_MIDDLE + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+
+      // THEN INNER
+      else { //rightInnerBlack
+        driveForward(SPEED_INNER + CORRECTION_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+      
+    }
+  // if any left sensors and no right sensors
+    else if (!anyRightBlack && anyLeftBlack) {
+      
+      if (leftOuterBlack) {
+        driveForward(SPEED_EDGE + LEFT_MOTOR_CALIBRATION, SPEED_EDGE + CORRECTION_EDGE + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+
+      else if(leftMiddleBlack) {
+        driveForward(SPEED_MIDDLE + LEFT_MOTOR_CALIBRATION, SPEED_MIDDLE + CORRECTION_MIDDLE + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+
+      else { //leftInnerBlack
+        driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + CORRECTION_INNER + RIGHT_MOTOR_CALIBRATION);
+        return;
+      }
+      
     }
 
-    // if right sensors see line then turn right
-    else if(lineValues[1] >= LIGHT_SENSOR_BLACK_THRESHOLD || lineValues[2] >= LIGHT_SENSOR_BLACK_THRESHOLD || lineValues[3] >= LIGHT_SENSOR_BLACK_THRESHOLD) 
-    {
-      driveRight(baseSpeed + 40, baseSpeed + 50);
+    else if (rightInnerBlack) {
+      driveForward(SPEED_INNER + CORRECTION_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
+      return;
     }
 
-    // of left sensors see line then turn left
-    else if(lineValues[5] >= LIGHT_SENSOR_BLACK_THRESHOLD || lineValues[6] >= LIGHT_SENSOR_BLACK_THRESHOLD || lineValues[7] >= LIGHT_SENSOR_BLACK_THRESHOLD) 
-    {
-      driveLeft(baseSpeed + 50, baseSpeed + 40);
+    else if (leftInnerBlack) {
+      driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + CORRECTION_INNER + RIGHT_MOTOR_CALIBRATION);
+      return;
     }
 
-    else 
-    {
-      stopMotors();
-    } 
-  }
+  driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
 
-  // recovery logic when all sensors see white
-  else if(maxSensorValue <= LIGHT_SENSOR_WHITE_THRESHOLD && lastBlackDetected)
-  {
-    driveBackward(recovoerySpeed, recovoerySpeed); // robot reverses until it finds the line again
-  }
-
-  else 
-  {
-    stopMotors();
-  }
 }
-
+ 
 // motor control
 void driveForward(int left, int right) {
+// constrain because sometimes value + correction goes over or under 0 and 255 respectively
+  left = constrain(left, 0, 255);
+  right = constrain(right, 0, 255);
   analogWrite(LEFT_FORWARD_PIN, left);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, right);
@@ -117,24 +177,12 @@ void driveForward(int left, int right) {
 }
 
 void driveBackward(int left, int right) {
+  left = constrain(left, 0, 255);
+  right = constrain(right, 0, 255);
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, left);
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, right);
-}
-
-void driveRight(int left, int right) {
-  analogWrite(LEFT_FORWARD_PIN, left);
-  analogWrite(LEFT_BACKWARD_PIN, 0);
-  analogWrite(RIGHT_FORWARD_PIN, 0);
-  analogWrite(RIGHT_BACKWARD_PIN, right);
-}
-
-void driveLeft(int left, int right) {
-  analogWrite(LEFT_FORWARD_PIN, 0);
-  analogWrite(LEFT_BACKWARD_PIN, left);
-  analogWrite(RIGHT_FORWARD_PIN, right);
-  analogWrite(RIGHT_BACKWARD_PIN, 0);
 }
 
 void stopMotors() {

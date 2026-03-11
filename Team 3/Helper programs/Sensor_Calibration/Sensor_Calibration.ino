@@ -1,12 +1,12 @@
 // Pin mapping.
-const int NUM_SENSORS = 4;
-const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A1, A2, A3, A4};
+const int NUM_SENSORS = 6;
+const int LIGHT_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A5, A6, A7};
 
 ///Light sensors
 ///number of samples for the log
 const int SENSOR_SAMPLES_AMOUNT = 67;
 ///sensor calibration
-int weights[NUM_SENSORS] = {0, 0, 0, 0};
+int weights[NUM_SENSORS] = {0, 0, 0, 0, 0, 0};
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
 long whiteAvgTotalAverage = 0;
