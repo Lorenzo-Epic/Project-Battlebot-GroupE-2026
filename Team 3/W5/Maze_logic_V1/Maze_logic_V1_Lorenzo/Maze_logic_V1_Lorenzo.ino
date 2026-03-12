@@ -1,6 +1,8 @@
-///TODO: if sensor reading is 1000, then it should be ignored or some action should be taken
-///TODO: if motor moves forward but sensor doesn't see it, then the robot should move back as a recovery condition
+///TODO: if motor moves forward but rotation sensor doesn't see it, then the robot should move back as a recovery condition
 ///TODO: make robot shut down maze logic if it senses black line
+///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK
+///TODO: implement a timeout for all of the rotors, if three seconds pass and it doesnt move where it wants to move, it goes opposite of the direction it was going (backwards if forwards, forwards if backwards), turns in the opposite direction in which it was turning (left if right, right is left), and then goes back in its original direction again for the same distance (eg. forwards, backwards)
+///TODO: MORE FUCKING SYSTEM OUT LOG MESSAGES
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 const int LEFT_FORWARD_PIN  = 6;
@@ -34,6 +36,9 @@ const unsigned long MINIMUM_EDGE_TIME_US = 150;
 const int TURN_90_TARGET_TICKS = 32;
 const int TURN_5_TARGET_TICKS = 2;
 
+// Timeout for recovery
+const unsigned long STALL_TIMEOUT_MS = 3000;
+
 // Encoder counters (volatile to ensure it's always upated)
 volatile unsigned long leftTickCount = 0;
 volatile unsigned long rightTickCount = 0;
@@ -54,8 +59,15 @@ const int TRIG_RIGHT = A3;
 const int ECHO_RIGHT = 8;
 
 // distance to wall 
-const int WALL_DISTANCE = 20; // cm
-const int TOO_CLOSE_TO_WALLS = 8; // cm
+const int WALL_DISTANCE_SIDE = 18; // cm
+const int WALL_DISTANCE_FRONT = 16;
+const int FOLLOW_LEFT_WALL_VERY_VERY_CLOSE = 1;
+const int FOLLOW_LEFT_WALL_VERY_CLOSE = 3;
+const int FOLLOW_LEFT_WALL_CLOSE = 5;
+const int FOLLOW_LEFT_WALL_IDEAL = 7; // cm
+const int FOLLOW_LEFT_WALL_FAR = 9;
+const int FOLLOW_LEFT_WALL_VERY_FAR = 12;
+const int FOLLOW_LEFT_WALL_VERY_VERY_FAR = 15;
 
 
 void setup() {
@@ -106,28 +118,49 @@ void loop() {
   Serial.print("  Right: ");
   Serial.println(rightDistance);
 
-  // small adjustment if too close to wall
-  if(leftDistance < rightDistance) {
-    // turn slightly right
-    turnRightForward5Degrees();
+  // Left wall correction
+  // If very far from left wall, turn right a lot
+  if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
+    turnLeftForwardTicks(4);
   }
-  
-  if(rightDistance < leftDistance) {
-  // turn slightly left
-    turnLeftForward5Degrees();
+  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
+    turnLeftForwardTicks(3);
+  }
+  else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
+    turnLeftForwardTicks(2);
+  }
+  else if (leftDistance > FOLLOW_LEFT_WALL_IDEAL + 1 && leftDistance < FOLLOW_LEFT_WALL_IDEAL - 1) {
+    return;
+  }
+  else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
+    turnRightForwardTicks(2);
+  }
+  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
+    turnRightForwardTicks(3);
+  }
+  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
+    turnRightForwardTicks(4);
   }
 
   // Convenience booleans
-  bool isWallOnLeft = leftDistance < WALL_DISTANCE || leftDistance == 1000;
-  bool isWallOnRight = rightDistance < WALL_DISTANCE || rightDistance == 1000;
-  bool isWallForward = frontDistance < WALL_DISTANCE || frontDistance == 1000;
+  bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE;
+  bool isWallOnRight = rightDistance < WALL_DISTANCE_SIDE || rightDistance == 1000;
+  bool isWallForward = frontDistance < WALL_DISTANCE_FRONT || frontDistance == 1000;
 
   // follows the left wall all the time
 // if it's at a dead end, escape
   if(isWallOnLeft && isWallOnRight && isWallForward) {
-    turnRightBackward90Degrees();
-    turnLeftForward90Degrees();
-    Serial.print(" Turning 180 degrees ");
+    if (leftDistance > rightDistance) {
+      //  if more space on left, recover turning left
+      turnLeftBackward90Degrees();
+      turnLeftForward90Degrees();
+      Serial.print(" Turning 180 degrees left ");
+    } else { // else, recover turning right
+      turnRightBackward90Degrees();
+      turnRightForward90Degrees();
+      Serial.print(" Turning 180 degrees right ");
+    }
+
   }
 //  else if left is open, go left
   else if(!isWallOnLeft) {
@@ -193,7 +226,7 @@ void resetEncoderCounts() {
 
 // Get current left encoder count, put it into value, and return value, because you cannot resume interrupts after a return
 unsigned long getLeftTicks() {
-  long value;
+  unsigned long value;
 
   noInterrupts();
   value = leftTickCount;
@@ -225,7 +258,6 @@ void stopMotors() {
 void startForwardMotion() {
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
-
   analogWrite(LEFT_FORWARD_PIN, LEFT_FORWARD_SPEED);
   analogWrite(RIGHT_FORWARD_PIN, RIGHT_FORWARD_SPEED);
 }
@@ -234,31 +266,38 @@ void startForwardMotion() {
 void startBackwardMotion() {
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
-
   analogWrite(LEFT_BACKWARD_PIN, LEFT_BACKWARD_SPEED);
   analogWrite(RIGHT_BACKWARD_PIN, RIGHT_BACKWARD_SPEED);
 }
 
 // Start turning left
 void startLeftForwardTurn() {
+  analogWrite(LEFT_FORWARD_PIN, 0);
+  analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, RIGHT_TURN_SPEED);
 }
 
 // Start turning left backwards
 void startLeftBackwardTurn() {
+  analogWrite(LEFT_FORWARD_PIN, 0);
+  analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, RIGHT_TURN_SPEED);
 }
 
 // Start turning right
 void startRightForwardTurn() {
+  analogWrite(RIGHT_FORWARD_PIN, 0);
+  analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(LEFT_FORWARD_PIN, LEFT_TURN_SPEED);
 }
 
 // Start turning right backwards
 void startRightBackwardTurn() {
+  analogWrite(RIGHT_FORWARD_PIN, 0);
+  analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, LEFT_TURN_SPEED);
 }
@@ -366,9 +405,8 @@ void turnLeftForward90Degrees() {
   stopMotors();
 }
 
-void turnLeftForward5Degrees() {
-  int targetTicks = TURN_5_TARGET_TICKS;
-
+void turnLeftForwardTicks(int targetTicks) {
+  
   resetEncoderCounts();
   startLeftForwardTurn();
 
@@ -384,7 +422,7 @@ void turnLeftForward5Degrees() {
   stopMotors();
 }
 
-void turnLeftBackward90Degrees() {
+void turnRightBackward90Degrees() {
   int targetTicks = TURN_90_TARGET_TICKS;
 
   resetEncoderCounts();
@@ -404,6 +442,7 @@ void turnLeftBackward90Degrees() {
 
 // Turn right by about 90 degrees
 void turnRightForward90Degrees() {
+
   int targetTicks = TURN_90_TARGET_TICKS;
 
   resetEncoderCounts();
@@ -421,8 +460,7 @@ void turnRightForward90Degrees() {
   stopMotors();
 }
 
-void turnRightForward5Degrees() {
-  int targetTicks = TURN_5_TARGET_TICKS;
+void turnRightForwardTicks(int targetTicks) {
 
   resetEncoderCounts();
   startRightForwardTurn();
@@ -439,7 +477,7 @@ void turnRightForward5Degrees() {
   stopMotors();
 }
 
-void turnRightBackward90Degrees() {
+void turnLeftBackward90Degrees() {
   int targetTicks = TURN_90_TARGET_TICKS;
 
   resetEncoderCounts();
