@@ -1,12 +1,20 @@
+///~~~~~~~~~~DONE
 ///TODO: if motor moves forward but rotation sensor doesn't see it, then the robot should move back as a recovery condition
-///TODO: make robot shut down maze logic if it senses black line
-///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK (system so it sees when the last time the wall was detected, then goes 5cm more forward
+///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK (system so it sees when the last time the wall was detected, then goes 5cm more forward (maybe done lmao)
 ///TODO: implement a timeout for all of the rotors, if the robot doesn't go where it ended up wanting to, it boosts the motors to 255 for one second, if that doesn't work if three seconds pass and it doesnt move where it wants to move, it goes opposite of the direction it was going (backwards if forwards, forwards if backwards), turns in the opposite direction in which it was turning (left if right, right is left), and then goes back in its original direction again for the same distance (eg. forwards, backwards)
-///TODO: MORE FUCKING SYSTEM OUT LOG MESSAGES
+///TODO: MORE SYSTEM OUT LOG MESSAGES
 ///TODO: recovery code, 
 ///TODO: problem, recovery funciton doesnt work if the robot never moved at all.
 ///TODO: when bobot goes back in recovery 180 degree, if stuck, rotate the opposite wheel in the opposite direction (if it was going left back, rotate right back BY CALCULATING THE REMAINING AMOUNT OF TICKS AND THEN CALLING THE FUNCTION WITH THOSE TICKS), AND THIS WILL APPLY FOR BOTH THE FORWARD AND BACK MOTION  
+///TODO: the adjustment is always running even when there's no left wall
 
+///~~~~~~~~~~NOT DONE
+///TODO: because robot moves 10cm at a time, and forward wall is xcm, there's a window in which it goes forward and hits the wall
+///TODO: front ignore first 8 centimeters. if its greater than 0 and less than 8 cm, 
+///TODO: if xdirectionvalid = if its less than 0 then its invalid, if its 10000 or greater they're also invalid. if any one of them is invalid skip the loop and redo it
+///TODO: add a median reading, eg read 3 times and then make a decision. but if 3 invalid in a row then how does it treat it? probably as if there's a wall there.
+///TODO: DECIDE HOW TO HANDLE MEDIAN READINGS THAT RETURN -1;
+///TODO: make robot shut down maze logic if it senses black line
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 const int LEFT_FORWARD_PIN  = 6;
@@ -64,7 +72,7 @@ const int ECHO_RIGHT = 8;
 
 // distance to wall 
 const int WALL_DISTANCE_SIDE = 18; // cm
-const int WALL_DISTANCE_FRONT = 18;
+const int WALL_DISTANCE_FRONT = 15; //was 18 but idfk bro 
 const int FOLLOW_LEFT_WALL_VERY_VERY_CLOSE = 1;
 const int FOLLOW_LEFT_WALL_VERY_CLOSE = 3;
 const int FOLLOW_LEFT_WALL_CLOSE = 5;
@@ -122,14 +130,26 @@ void setup() {
 
 void loop() {
 
+  Serial.println("========NEW LOOP========");
+
 /// Keeps gripepr servo powered
   closeGripper();
   waitMs(500);
-
 // Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
+
+//  Average of 3
+  getAverageDistance(TRIG_FRONT, ECHO_FRONT, 3);
+
   float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
+  waitMs(100);
   float leftDistance  = constrain(getDistance(TRIG_LEFT, ECHO_LEFT), 0, 1000);
+  waitMs(100);
   float rightDistance = constrain(getDistance(TRIG_RIGHT, ECHO_RIGHT), 0, 1000);
+
+// Front distance can be buggy, try again if it gets an impossibly close value
+  if (frontDistance > 0 && frontDistance < 8) {
+      float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
+  }
 
   Serial.print("Front: ");
   Serial.print(frontDistance);
@@ -137,41 +157,53 @@ void loop() {
   Serial.print(leftDistance);
   Serial.print("  Right: ");
   Serial.println(rightDistance);
+  
+  
+  bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
+  bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0) || (rightDistance == 1000);
+  bool isWallForward = (frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0) || (frontDistance == 1000);
+  Serial.print("isWallOnLeft = ");
+  Serial.println(isWallOnLeft);
+  Serial.print("isWallOnRight = ");
+  Serial.println(isWallOnRight);
+  Serial.print("isWallForward = ");
+  Serial.println(isWallForward);
 
-  // Left wall correction
-  // If very far from left wall, turn right a lot
-  if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
-    turnLeftForwardTicksWithDeadEnd(6, false);
-    Serial.println("Very very far from left wall, turning left ");
-  }
-  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
-    Serial.println("Very far from left wall, turning left ");
-    turnLeftForwardTicksWithDeadEnd(4, false);
-  }
-  else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
-    Serial.println("far from left wall, turning left ");
-    turnLeftForwardTicksWithDeadEnd(2, false);
-  }
-  else if (leftDistance >= FOLLOW_LEFT_WALL_IDEAL - 1 && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + 1) {
-    Serial.println("ideal distance from left wall, adjustment skipped ");
-  }
-  else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
-    turnRightForwardTicksWithDeadEnd(2, false);
-    Serial.println("close to left wall, turning right");
-  }
-  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
-    turnRightForwardTicksWithDeadEnd(4, false);
-    Serial.println("Very close to left wall, turning right");
-  }
-  else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
-    turnRightForwardTicksWithDeadEnd(6, false);
-    Serial.println("Very very close to left wall, turning right");
+// Only keep correct distance from the left wall if there IS a left wall
+  if (isWallOnLeft) {
+    // Left wall correction
+    // If very far from left wall, turn right a lot
+    if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
+      turnLeftForwardTicksWithDeadEnd(4, false);
+      Serial.println("ADJUSTMENT: Very very far from left wall, turning left ");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
+      Serial.println("ADJUSTMENT: Very far from left wall, turning left ");
+      turnLeftForwardTicksWithDeadEnd(3, false);
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
+      Serial.println("ADJUSTMENT: far from left wall, turning left ");
+      turnLeftForwardTicksWithDeadEnd(2, false);
+    }
+    else if (leftDistance >= FOLLOW_LEFT_WALL_IDEAL - 1 && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + 1) {
+      Serial.println("ADJUSTMENT: ideal distance from left wall, adjustment skipped ");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(2, false);
+      Serial.println("ADJUSTMENT: close to left wall, turning right");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(3, false);
+      Serial.println("ADJUSTMENT: Very close to left wall, turning right");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(4, false);
+      Serial.println("ADJUSTMENT: Very very close to left wall, turning right");
+    }
   }
 
-  // Convenience booleans
-  bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE;
-  bool isWallOnRight = rightDistance < WALL_DISTANCE_SIDE || rightDistance == 1000;
-  bool isWallForward = frontDistance < WALL_DISTANCE_FRONT || frontDistance == 1000;
+
+  
 
   // follows the left wall all the time
 // if it's at a dead end, escape
@@ -192,24 +224,25 @@ void loop() {
   else if(!isWallOnLeft) {
     moveForwardCm(3);
     turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
-    moveForwardCm(5);
+    moveForwardCm(10); //was 5, now 3, try 10 later
 //    startLeftForwardTurn();
     Serial.println("No wall on left, Going forward, then left, then forward");
   }
 //  if forward is open, go forward
   else if (!isWallForward) {
-    moveForwardCm(3);
+    moveForwardCm(10);
     Serial.println("Wall left but none forward, Going forward ");
   }
 // if right is open, go right (!isWallOnRight)
   else {
     moveForwardCm(3);
     turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
-    moveForwardCm(5);
+    moveForwardCm(10);
 //    startRightForwardTurn();
     Serial.println("Wall left and forward, Going forward, right, and then forward");
   }
 
+  waitMs(2000);
 }
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
@@ -448,7 +481,10 @@ void moveBackwardCm(float distanceCm) {
 }
  
 void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
-
+  Serial.print("Running turnLeftForward..., targetTicks: ");
+  Serial.println(targetTicks);
+  Serial.print("isDeadEnd: ");
+  Serial.println(isDeadEnd);
   if (targetTicks <= 0) {
     return;
   }
@@ -492,7 +528,10 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
 }
 
 void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
-
+  Serial.print("Running turnRightForward..., targetTicks: ");
+  Serial.println(targetTicks);
+  Serial.print("isDeadEnd: ");
+  Serial.println(isDeadEnd);
   if (targetTicks <= 0) {
     return;
   }
@@ -536,7 +575,10 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
 }
 
 void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
-
+  Serial.print("Running turnLeftBackward..., targetTicks: ");
+  Serial.println(targetTicks);
+  Serial.print("isDeadEnd: ");
+  Serial.println(isDeadEnd);
   if (targetTicks <= 0) {
     return;
   }
@@ -582,7 +624,10 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
 }
 
 void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
-
+  Serial.print("Running turnRightBackward..., targetTicks: ");
+  Serial.println(targetTicks);
+  Serial.print("isDeadEnd: ");
+  Serial.println(isDeadEnd);
   if (targetTicks <= 0) {
     return;
   }
@@ -633,19 +678,56 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
 float getDistance(int trigPin, int echoPin) 
 {
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(50);
+  delayMicroseconds(2); //was 50, now 2
 
   digitalWrite(trigPin, HIGH);
-  delayMicroseconds(100);
+  delayMicroseconds(10); //was 100, now 10
 
   digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(echoPin, HIGH);
+// If signal takes too long, return -1
+  unsigned long duration = pulseIn(echoPin, HIGH, 30000UL);
+  if (duration == 0) {
+    return -1;
+  }
+
+//  long duration = pulseIn(echoPin, HIGH);/ was this
 // this is speed of sound by microseconds so: distance (cm) = duration (µs/microseconds)* 0.017
 // 0.017 is speed of sound already divided by 2, so instead of 0.034 its 0.017
   float distance = duration * 0.017; 
 
   return distance;
+}
+
+///gets the average of the read distance from the sensor "amount" amount of times
+float getAverageDistance(int trigPin, int echoPin, int amount) {
+  if (amount <= 0) {
+    return -1;
+  }
+
+  float sum = 0.0;
+  int validCount = 0;
+  int attempts = 0;
+  int maxAttempts = amount * 3;
+
+  while (validCount < amount && attempts < maxAttempts) {
+    attempts++;
+
+    float distance = getDistance(trigPin, echoPin);
+
+    if (distance > 0 && distance < 1000) {
+      sum += distance;
+      validCount++;
+    }
+
+    waitMs(30);
+  }
+
+  if (validCount < amount) {
+    return -1;
+  }
+
+  return sum / validCount;
 }
 
 ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
