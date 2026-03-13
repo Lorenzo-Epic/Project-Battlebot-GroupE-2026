@@ -5,12 +5,12 @@ const int RIGHT_FORWARD_PIN = 11;
 const int RIGHT_BACKWARD_PIN = 9;
 
 // D1 = A0, D2 = A1, D3 = A2, D4 = A3, D5 = A4, D6 = A5, D7 = A6, D8 = A7
-const int NUM_SENSORS = 7;
-const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A4, A5, A6, A7};
+const int NUM_SENSORS = 6;
+const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A5, A6, A7};
 int lineValues[NUM_SENSORS]; // this keeps the sensor readings of the moment
 /// pin A3 is used for trig sensor right ultrasound sensor
 // sensor calibration
-int weights[NUM_SENSORS] = {-273, -264, -253, -250, -276, -309, -322};
+int weights[NUM_SENSORS] = {-273, -264, -253, -276, -309, -322};
 
 // thresholds
 const int LIGHT_SENSOR_WHITE_THRESHOLD = 400;
@@ -23,10 +23,9 @@ bool sensorBlack[NUM_SENSORS] = {false};
 const int RIGHT_OUTER_SENSOR = 0;
 const int RIGHT_MIDDLE_SENSOR = 1;
 const int RIGHT_INNER_SENSOR = 2;
-const int MIDDLE_SENSOR = 3;
-const int LEFT_OUTER_SENSOR = 4;
-const int LEFT_MIDDLE_SENSOR = 5;
-const int LEFT_INNER_SENSOR = 6;
+const int LEFT_OUTER_SENSOR = 3;
+const int LEFT_MIDDLE_SENSOR = 4;
+const int LEFT_INNER_SENSOR = 5;
 
 
 // speed settings
@@ -87,7 +86,6 @@ void followTheLine() {
   bool leftOuterBlack = sensorBlack[LEFT_OUTER_SENSOR];
   bool leftMiddleBlack = sensorBlack[LEFT_MIDDLE_SENSOR];
   bool leftInnerBlack = sensorBlack[LEFT_INNER_SENSOR];
-  bool middleBlack = sensorBlack[MIDDLE_SENSOR];
   bool rightInnerBlack = sensorBlack[RIGHT_INNER_SENSOR];
   bool rightMiddleBlack = sensorBlack[RIGHT_MIDDLE_SENSOR];
   bool rightOuterBlack = sensorBlack[RIGHT_OUTER_SENSOR];

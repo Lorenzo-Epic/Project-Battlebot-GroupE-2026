@@ -42,7 +42,7 @@ volatile unsigned long lastLeftEdgeTime = 0;
 volatile unsigned long lastRightEdgeTime = 0;
 
 ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER VALUES ~~~~~~~~~~~~~~~~~~~~~~
-#define SERVO_PIN 6 
+#define SERVO_PIN 5 
 #define GRIPPER_OPEN_US  1820
 #define GRIPPER_CLOSE_US 1050
 
