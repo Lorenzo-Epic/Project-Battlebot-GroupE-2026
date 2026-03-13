@@ -2,9 +2,9 @@
 #define GRIPPER_OPEN 1620     
 #define GRIPPER_CLOSE 1100     
 
-const int LEFTMOTORBACK = 8;        // pin controlling left motor backward
-const int LEFTMOTORSTRAIGHT = 5;    // pin controlling left motor forward
-const int RIGHTMOTORBACK = 11;      // pin controlling right motor backward
+const int LEFTMOTORBACK = 9;        // pin controlling left motor backward
+const int LEFTMOTORSTRAIGHT = 11;    // pin controlling left motor forward
+const int RIGHTMOTORBACK = 3;      // pin controlling right motor backward
 const int RIGHTMOTORSTRAIGHT = 10;  // pin controlling right motor forward
 
 const int R1 = 2;   

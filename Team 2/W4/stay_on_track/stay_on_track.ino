@@ -32,17 +32,17 @@ void forward(int spd) {
 
 void turnLeft() {
   // Pivot left: Left motor stops, Right motor moves forward
-  analogWrite(LEFT_FWD, 0);
+  analogWrite(LEFT_FWD, 60);
   analogWrite(LEFT_BWD, 0);
-  analogWrite(RIGHT_FWD, 200);
+  analogWrite(RIGHT_FWD, 240);
   analogWrite(RIGHT_BWD, 0);
 }
 
 void turnRight() {
   // Pivot right: Right motor stops, Left motor moves forward
-  analogWrite(LEFT_FWD, 200);
+  analogWrite(LEFT_FWD, 240);
   analogWrite(LEFT_BWD, 0);
-  analogWrite(RIGHT_FWD, 0);
+  analogWrite(RIGHT_FWD, 60);
   analogWrite(RIGHT_BWD, 0);
 }
 
