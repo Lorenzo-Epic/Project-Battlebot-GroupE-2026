@@ -1,8 +1,12 @@
 ///TODO: if motor moves forward but rotation sensor doesn't see it, then the robot should move back as a recovery condition
 ///TODO: make robot shut down maze logic if it senses black line
-///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK
-///TODO: implement a timeout for all of the rotors, if three seconds pass and it doesnt move where it wants to move, it goes opposite of the direction it was going (backwards if forwards, forwards if backwards), turns in the opposite direction in which it was turning (left if right, right is left), and then goes back in its original direction again for the same distance (eg. forwards, backwards)
+///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK (system so it sees when the last time the wall was detected, then goes 5cm more forward
+///TODO: implement a timeout for all of the rotors, if the robot doesn't go where it ended up wanting to, it boosts the motors to 255 for one second, if that doesn't work if three seconds pass and it doesnt move where it wants to move, it goes opposite of the direction it was going (backwards if forwards, forwards if backwards), turns in the opposite direction in which it was turning (left if right, right is left), and then goes back in its original direction again for the same distance (eg. forwards, backwards)
 ///TODO: MORE FUCKING SYSTEM OUT LOG MESSAGES
+///TODO: recovery code, 
+///TODO: problem, recovery funciton doesnt work if the robot never moved at all.
+///TODO: when bobot goes back in recovery 180 degree, if stuck, rotate the opposite wheel in the opposite direction (if it was going left back, rotate right back BY CALCULATING THE REMAINING AMOUNT OF TICKS AND THEN CALLING THE FUNCTION WITH THOSE TICKS), AND THIS WILL APPLY FOR BOTH THE FORWARD AND BACK MOTION  
+
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 const int LEFT_FORWARD_PIN  = 6;
@@ -37,7 +41,7 @@ const int TURN_90_TARGET_TICKS = 32;
 const int TURN_5_TARGET_TICKS = 2;
 
 // Timeout for recovery
-const unsigned long STALL_TIMEOUT_MS = 3000;
+const unsigned long STALL_TIMEOUT_MS = 2000;
 
 // Encoder counters (volatile to ensure it's always upated)
 volatile unsigned long leftTickCount = 0;
@@ -60,7 +64,7 @@ const int ECHO_RIGHT = 8;
 
 // distance to wall 
 const int WALL_DISTANCE_SIDE = 18; // cm
-const int WALL_DISTANCE_FRONT = 16;
+const int WALL_DISTANCE_FRONT = 18;
 const int FOLLOW_LEFT_WALL_VERY_VERY_CLOSE = 1;
 const int FOLLOW_LEFT_WALL_VERY_CLOSE = 3;
 const int FOLLOW_LEFT_WALL_CLOSE = 5;
@@ -69,6 +73,14 @@ const int FOLLOW_LEFT_WALL_FAR = 9;
 const int FOLLOW_LEFT_WALL_VERY_FAR = 12;
 const int FOLLOW_LEFT_WALL_VERY_VERY_FAR = 15;
 
+///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER VALUES ~~~~~~~~~~~~~~~~~~~~~~
+#define SERVO_PIN 5 
+#define GRIPPER_OPEN_US  1820
+#define GRIPPER_CLOSE_US 1050
+
+// This will be the target pulse width for the gripper
+volatile int gripperPulseUs = GRIPPER_OPEN_US;
+unsigned long lastServoMs = 0;
 
 void setup() {
 
@@ -102,9 +114,17 @@ void setup() {
 
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
+
+  ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER SETUP ~~~~~~~~~~~~~~~~~~~~~~
+  pinMode(SERVO_PIN, OUTPUT);
+  digitalWrite(SERVO_PIN, LOW);
 }
 
 void loop() {
+
+/// Keeps gripepr servo powered
+  closeGripper();
+  waitMs(500);
 
 // Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
   float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
@@ -121,25 +141,31 @@ void loop() {
   // Left wall correction
   // If very far from left wall, turn right a lot
   if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
-    turnLeftForwardTicks(4);
+    turnLeftForwardTicksWithDeadEnd(6, false);
+    Serial.println("Very very far from left wall, turning left ");
   }
   else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
-    turnLeftForwardTicks(3);
+    Serial.println("Very far from left wall, turning left ");
+    turnLeftForwardTicksWithDeadEnd(4, false);
   }
   else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
-    turnLeftForwardTicks(2);
+    Serial.println("far from left wall, turning left ");
+    turnLeftForwardTicksWithDeadEnd(2, false);
   }
-  else if (leftDistance > FOLLOW_LEFT_WALL_IDEAL + 1 && leftDistance < FOLLOW_LEFT_WALL_IDEAL - 1) {
-    return;
+  else if (leftDistance >= FOLLOW_LEFT_WALL_IDEAL - 1 && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + 1) {
+    Serial.println("ideal distance from left wall, adjustment skipped ");
   }
   else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
-    turnRightForwardTicks(2);
+    turnRightForwardTicksWithDeadEnd(2, false);
+    Serial.println("close to left wall, turning right");
   }
   else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
-    turnRightForwardTicks(3);
+    turnRightForwardTicksWithDeadEnd(4, false);
+    Serial.println("Very close to left wall, turning right");
   }
   else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
-    turnRightForwardTicks(4);
+    turnRightForwardTicksWithDeadEnd(6, false);
+    Serial.println("Very very close to left wall, turning right");
   }
 
   // Convenience booleans
@@ -152,34 +178,36 @@ void loop() {
   if(isWallOnLeft && isWallOnRight && isWallForward) {
     if (leftDistance > rightDistance) {
       //  if more space on left, recover turning left
-      turnLeftBackward90Degrees();
-      turnLeftForward90Degrees();
-      Serial.print(" Turning 180 degrees left ");
+      turnLeftBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      Serial.println("Dead end with left wall further away, Turning 180 degrees left ");
     } else { // else, recover turning right
-      turnRightBackward90Degrees();
-      turnRightForward90Degrees();
-      Serial.print(" Turning 180 degrees right ");
+      turnRightBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      Serial.println("Dead end with right wall further away, Turning 180 degrees right ");
     }
 
   }
 //  else if left is open, go left
   else if(!isWallOnLeft) {
-    turnLeftForward90Degrees();
-    moveForwardCm(10);
+    moveForwardCm(3);
+    turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(5);
 //    startLeftForwardTurn();
-    Serial.print(" Going left ");
+    Serial.println("No wall on left, Going forward, then left, then forward");
   }
 //  if forward is open, go forward
   else if (!isWallForward) {
-    moveForwardCm(5);
-    Serial.print(" Going forward ");
+    moveForwardCm(3);
+    Serial.println("Wall left but none forward, Going forward ");
   }
 // if right is open, go right (!isWallOnRight)
   else {
-    turnRightForward90Degrees();
-    moveForwardCm(10);
+    moveForwardCm(3);
+    turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(5);
 //    startRightForwardTurn();
-    Serial.print(" Going right ");
+    Serial.println("Wall left and forward, Going forward, right, and then forward");
   }
 
 }
@@ -338,7 +366,7 @@ void correctMotorSpeeds(int baseSpeed, int direction) {
 
 // Move forward a given distance in centimeters
 void moveForwardCm(float distanceCm) {
-  int targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
+  unsigned long targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
 
   if (targetTicks <= 0) {
     return;
@@ -347,15 +375,33 @@ void moveForwardCm(float distanceCm) {
   resetEncoderCounts();
   startForwardMotion();
 
+  unsigned long lastTicks = 0;
+  unsigned long lastStallTime = millis();
+
   while (true) {
+    gripperUpdate();
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
     correctMotorSpeeds(240, 1);
 
-    if (averageTicks >= (unsigned long)targetTicks) {
+    if (averageTicks >= targetTicks) {
       break;
     }
+
+//  if robot moved forward, update last ticks and last stall time (because it hasn't stalled)
+    if (averageTicks != lastTicks) {
+      lastTicks = averageTicks;
+      lastStallTime = millis();
+    }
+
+// if robot has not been moving for too long, do recovery, then break movement
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      stopMotors();
+      moveBackwardCm(5);
+      break;
+    }
+    
   }
 
   stopMotors();
@@ -363,22 +409,37 @@ void moveForwardCm(float distanceCm) {
 
 // Move backward a given distance in centimeters
 void moveBackwardCm(float distanceCm) {
-  int targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
+  unsigned long targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
 
   if (targetTicks <= 0) {
     return;
   }
 
+  unsigned long lastTicks = 0;
+  unsigned long lastStallTime = millis();
+
   resetEncoderCounts();
   startBackwardMotion();
 
   while (true) {
+    gripperUpdate();
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
     correctMotorSpeeds(240, 0);
 
-    if (averageTicks >= (unsigned long)targetTicks) {
+    if (averageTicks >= targetTicks) {
+      break;
+    }
+    
+    if (averageTicks != lastTicks) {
+      lastTicks = averageTicks;
+      lastStallTime = millis();
+    }
+
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      stopMotors();
+      moveForwardCm(5);
       break;
     }
   }
@@ -386,114 +447,186 @@ void moveBackwardCm(float distanceCm) {
   stopMotors();
 }
  
-// Turn left by about 90 degrees
-void turnLeftForward90Degrees() {
-  int targetTicks = TURN_90_TARGET_TICKS;
+void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
+
+  if (targetTicks <= 0) {
+    return;
+  }
+
+  unsigned long lastTicks = 0;
+  unsigned long lastStallTime = millis();
 
   resetEncoderCounts();
   startLeftForwardTurn();
 
   while (true) {
+    gripperUpdate();
+    
     unsigned long rightValue = getRightTicks();
 
     // During a left turn, the right wheel is the moving wheel
-    if (rightValue >= (unsigned long)targetTicks) {
+    if (rightValue >= targetTicks) {
       break;
     }
-  }
+    
+    if (rightValue != lastTicks) {
+      lastTicks = rightValue;
+      lastStallTime = millis();
+    }
 
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      if (isDeadEnd) {
+        unsigned long remainingTicks = targetTicks - rightValue;
+        moveBackwardCm(6);
+        turnRightBackwardTicksWithDeadEnd(remainingTicks, true);
+        break;
+      } else {
+        stopMotors();
+        moveBackwardCm(3);
+        turnRightBackwardTicksWithDeadEnd(5, false);
+        break;
+      }
+    }
+  }
   stopMotors();
 }
 
-void turnLeftForwardTicks(int targetTicks) {
-  
-  resetEncoderCounts();
-  startLeftForwardTurn();
+void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
 
-  while (true) {
-    unsigned long rightValue = getRightTicks();
-
-    // During a left turn, the right wheel is the moving wheel
-    if (rightValue >= (unsigned long)targetTicks) {
-      break;
-    }
+  if (targetTicks <= 0) {
+    return;
   }
 
-  stopMotors();
-}
-
-void turnRightBackward90Degrees() {
-  int targetTicks = TURN_90_TARGET_TICKS;
-
-  resetEncoderCounts();
-  startLeftBackwardTurn();
-
-  while (true) {
-    unsigned long rightValue = getRightTicks();
-
-    // During a left turn, the right wheel is the moving wheel
-    if (rightValue >= (unsigned long)targetTicks) {
-      break;
-    }
-  }
-
-  stopMotors();
-}
-
-// Turn right by about 90 degrees
-void turnRightForward90Degrees() {
-
-  int targetTicks = TURN_90_TARGET_TICKS;
+  unsigned long lastTicks = 0;
+  unsigned long lastStallTime = millis();
 
   resetEncoderCounts();
   startRightForwardTurn();
 
   while (true) {
+    gripperUpdate();
+    
     unsigned long leftValue = getLeftTicks();
 
     // During a right turn, the left wheel is the moving wheel
-    if (leftValue >= (unsigned long)targetTicks) {
+    if (leftValue >= targetTicks) {
       break;
     }
-  }
+    
+    if (leftValue != lastTicks) {
+      lastTicks = leftValue;
+      lastStallTime = millis();
+    }
 
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      if (isDeadEnd) {
+        unsigned long remainingTicks = targetTicks - leftValue;
+        moveBackwardCm(6);
+        turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);
+        break;
+      } else {
+        stopMotors();
+        moveBackwardCm(3);
+        turnLeftBackwardTicksWithDeadEnd(5, false);
+        break;
+      }
+    }
+  }
   stopMotors();
 }
 
-void turnRightForwardTicks(int targetTicks) {
+void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
 
-  resetEncoderCounts();
-  startRightForwardTurn();
-
-  while (true) {
-    unsigned long leftValue = getLeftTicks();
-
-    // During a right turn, the left wheel is the moving wheel
-    if (leftValue >= (unsigned long)targetTicks) {
-      break;
-    }
+  if (targetTicks <= 0) {
+    return;
   }
 
-  stopMotors();
-}
-
-void turnLeftBackward90Degrees() {
-  int targetTicks = TURN_90_TARGET_TICKS;
+  unsigned long lastTicks = 0;
+  unsigned long remainingTicks = 0;
+  unsigned long lastStallTime = millis();
 
   resetEncoderCounts();
   startRightBackwardTurn();
 
   while (true) {
+    gripperUpdate();
+    
     unsigned long leftValue = getLeftTicks();
 
     // During a right turn, the left wheel is the moving wheel
-    if (leftValue >= (unsigned long)targetTicks) {
+    if (leftValue >= targetTicks) {
       break;
+    }
+
+    if (leftValue != lastTicks) {
+      lastTicks = leftValue;
+      lastStallTime = millis();
+    }
+
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      if (isDeadEnd) {
+        unsigned long remainingTicks = targetTicks - leftValue;
+        moveForwardCm(6);
+        turnRightForwardTicksWithDeadEnd(remainingTicks, true);
+        break;
+      } else {
+        stopMotors();
+        moveForwardCm(3);
+        turnRightForwardTicksWithDeadEnd(5, false);
+        break; 
+      }
     }
   }
 
   stopMotors();
 }
+
+void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
+
+  if (targetTicks <= 0) {
+    return;
+  }
+
+  unsigned long lastTicks = 0;
+  unsigned long lastStallTime = millis();
+  
+  resetEncoderCounts();
+  startLeftBackwardTurn();
+
+  while (true) {
+    gripperUpdate();
+    
+    unsigned long rightValue = getRightTicks();
+
+    // During a left turn, the right wheel is the moving wheel
+    if (rightValue >= targetTicks) {
+      break;
+    }
+
+    if (rightValue != lastTicks) {
+      lastTicks = rightValue;
+      lastStallTime = millis();
+    }
+
+    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
+      if (isDeadEnd) {
+        unsigned long remainingTicks = targetTicks - rightValue;
+        moveForwardCm(6);
+        turnLeftForwardTicksWithDeadEnd(remainingTicks, true);
+        break;
+      } else {
+        stopMotors();
+        moveForwardCm(3);
+        turnRightForwardTicksWithDeadEnd(5, false);
+        break; 
+      }
+    }
+  }
+
+  stopMotors();
+}
+
+
 
 
 ///~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
@@ -513,4 +646,36 @@ float getDistance(int trigPin, int echoPin)
   float distance = duration * 0.017; 
 
   return distance;
+}
+
+///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
+void gripperUpdate() {
+  // Send one servo pulse every 20ms to keep it powered
+  unsigned long now = millis();
+  // if 20ms have passed, send another pulse to servo
+  if (now - lastServoMs >= 20) {
+    lastServoMs = now;
+    digitalWrite(SERVO_PIN, HIGH);
+    // PulseUs will be either the value to close or open the gripper, delay to keep the pulse HIGH for required amount
+    delayMicroseconds(gripperPulseUs);
+    digitalWrite(SERVO_PIN, LOW);
+  }
+}
+
+// Functions to update gripperPulseUs depending on if the gripper should be update or closed, this is used in the gripperUpdate()
+void openGripper()  {
+  gripperPulseUs = GRIPPER_OPEN_US;
+}
+
+void closeGripper() {
+  gripperPulseUs = GRIPPER_CLOSE_US;
+}
+
+// Replace ALL delay(ms) with this (keeps servo powered during waits)
+void waitMs(unsigned long ms) {
+  unsigned long start = millis();
+  // While milis time - start time is less than desired wait time, do nothing and keep updating the gripper
+  while (millis() - start < ms) {
+    gripperUpdate();
+  }
 }
