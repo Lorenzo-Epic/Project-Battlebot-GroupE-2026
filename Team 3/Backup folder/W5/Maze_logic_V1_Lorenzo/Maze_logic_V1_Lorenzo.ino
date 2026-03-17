@@ -1,5 +1,3 @@
-#include <Adafruit_NeoPixel.h>
-
 ///~~~~~~~~~~DONE
 ///TODO: if motor moves forward but rotation sensor doesn't see it, then the robot should move back as a recovery condition
 ///TODO: a way to make the robot go past the edge of the wall so it doesnt FUCKING BUMP INTO IT FUCKK (system so it sees when the last time the wall was detected, then goes 5cm more forward (maybe done lmao)
@@ -17,13 +15,6 @@
 ///TODO: add a median reading, eg read 3 times and then make a decision. but if 3 invalid in a row then how does it treat it? probably as if there's a wall there.
 ///TODO: DECIDE HOW TO HANDLE MEDIAN READINGS THAT RETURN -1;
 ///TODO: make robot shut down maze logic if it senses black line
-///TODO: keep implementing the average reading logic
-///TODO: if extra time, make it easy to quickly switch between left and right priority
-///TODO: make constants instead of hardcoding the RGB values for the neopixels
-///TODO: spread responsibilities between functions
-///TODO: remove all logic from main loop and only call function
-///TODO: updateLineSensors(); might not run often enough for the robot to catch the black line
-///TODO: janky interrupt fix for maze logic activating when lines are in middle of sensor, if that doesn't work, move all line sensors to the middle
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 const int LEFT_FORWARD_PIN  = 6;
@@ -90,44 +81,6 @@ const int FOLLOW_LEFT_WALL_FAR = 9;
 const int FOLLOW_LEFT_WALL_VERY_FAR = 12;
 const int FOLLOW_LEFT_WALL_VERY_VERY_FAR = 15;
 
-
-///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS ~~~~~~~~~~~~~~~~~~~~~~
-// D1 = A0, D2 = A1, D3 = A2, D4 = A3, D5 = A4, D6 = A5, D7 = A6, D8 = A7
-const int NUM_SENSORS = 6;
-const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A5, A6, A7};
-int lineValues[NUM_SENSORS]; // this keeps the sensor readings of the moment
-/// pin A3 is used for trig sensor right ultrasound sensor
-// sensor calibration
-int weights[NUM_SENSORS] = {-273, -264, -253, -276, -309, -322};
-
-// thresholds
-const int LIGHT_SENSOR_WHITE_THRESHOLD = 400;
-const int LIGHT_SENSOR_BLACK_THRESHOLD = 600;
-
-// for hysterysis, remembers what the sensor's last value was
-bool sensorBlack[NUM_SENSORS] = {false};
-
-// sensors declared here for flexibility from array
-const int RIGHT_OUTER_SENSOR = 0;
-const int RIGHT_MIDDLE_SENSOR = 1;
-const int RIGHT_INNER_SENSOR = 2;
-const int LEFT_OUTER_SENSOR = 3;
-const int LEFT_MIDDLE_SENSOR = 4;
-const int LEFT_INNER_SENSOR = 5;
-
-// speed settings
-const int SPEED_NONE = 230; //Speed for all sensors detecting white (means black line is perfectly in the center)
-const int SPEED_INNER = 200; //speed for when one of the inner sensors are on black
-const int SPEED_MIDDLE = 180; //speed for when one of the middle sensors (second to edge) are on black
-const int SPEED_EDGE = 0; //speed for when outer sensors (at the edge)are on black
-
-const int CORRECTION_EDGE = 180;
-const int CORRECTION_MIDDLE = 105;
-const int CORRECTION_INNER = 75;
-
-const int RIGHT_MOTOR_CALIBRATION = 0;
-const int LEFT_MOTOR_CALIBRATION = 25;
-
 ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER VALUES ~~~~~~~~~~~~~~~~~~~~~~
 #define SERVO_PIN 5 
 #define GRIPPER_OPEN_US  1820
@@ -136,20 +89,6 @@ const int LEFT_MOTOR_CALIBRATION = 25;
 // This will be the target pulse width for the gripper
 volatile int gripperPulseUs = GRIPPER_OPEN_US;
 unsigned long lastServoMs = 0;
-
-///~~~~~~~~~~~~~~~~~~~~~~ NEOPIXELS VALUES ~~~~~~~~~~~~~~~~~~~~~~
-// NeoPixels
-const int PIN_NEO = A4;
-const int NUM_PIXELS = 4;
-// Pixel position mapping
-// 0 = back left, 1 = back right, 2 = front right, 3 = front left
-const int FRONT_LEFT  = 3;
-const int FRONT_RIGHT = 2;
-const int BACK_LEFT   = 0;
-const int BACK_RIGHT  = 1;
-// FIND OUT WHY THIS IS NECESSARY AND COMMENT ON IT
-Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEO, NEO_RGB + NEO_KHZ800);
-
 
 void setup() {
 
@@ -184,19 +123,9 @@ void setup() {
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
 
-  ///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS SETUP ~~~~~~~~~~~~~~~~~~~~~~
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    pinMode(LINE_SENSOR_PINS[i], INPUT);
-  }
-
   ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER SETUP ~~~~~~~~~~~~~~~~~~~~~~
   pinMode(SERVO_PIN, OUTPUT);
   digitalWrite(SERVO_PIN, LOW);
-
-  ///~~~~~~~~~~~~~~~~~~~~~~ NEOPIXELS SETUP ~~~~~~~~~~~~~~~~~~~~~~
-  // Initialize neopixels, make them visible to the rest of the code
-  pixels.begin();
-  pixels.show();
 }
 
 void loop() {
@@ -206,122 +135,113 @@ void loop() {
 /// Keeps gripepr servo powered
   closeGripper();
   waitMs(500);
+// Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
 
-  updateLineSensors();
+//  Average of 3
+  getAverageDistance(TRIG_FRONT, ECHO_FRONT, 3);
 
-/// See if the sensor sees any black lines first, and skip maze logic
-  if (isLineDetected()) {
-    Serial.println("Line Detected, running followTheLine()");
-    followTheLine();
-  } else {
+  float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
+  waitMs(100);
+  float leftDistance  = constrain(getDistance(TRIG_LEFT, ECHO_LEFT), 0, 1000);
+  waitMs(100);
+  float rightDistance = constrain(getDistance(TRIG_RIGHT, ECHO_RIGHT), 0, 1000);
+
+// Front distance can be buggy, try again if it gets an impossibly close value
+  if (frontDistance > 0 && frontDistance < 8) {
+      float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
+  }
+
+  Serial.print("Front: ");
+  Serial.print(frontDistance);
+  Serial.print("  Left: ");
+  Serial.print(leftDistance);
+  Serial.print("  Right: ");
+  Serial.println(rightDistance);
   
-  // Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
-  //  Average of 3
-    getAverageDistance(TRIG_FRONT, ECHO_FRONT, 3);
   
-    float frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
-    waitMs(100);
-    float leftDistance  = constrain(getDistance(TRIG_LEFT, ECHO_LEFT), 0, 1000);
-    waitMs(100);
-    float rightDistance = constrain(getDistance(TRIG_RIGHT, ECHO_RIGHT), 0, 1000);
-  
-  // Front distance can be buggy, try again if it gets an impossibly close value
-    if (frontDistance > 0 && frontDistance < 8) {
-        frontDistance = constrain(getDistance(TRIG_FRONT, ECHO_FRONT), 0, 1000);
+  bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
+  bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0) || (rightDistance == 1000);
+  bool isWallForward = (frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0) || (frontDistance == 1000);
+  Serial.print("isWallOnLeft = ");
+  Serial.println(isWallOnLeft);
+  Serial.print("isWallOnRight = ");
+  Serial.println(isWallOnRight);
+  Serial.print("isWallForward = ");
+  Serial.println(isWallForward);
+
+// Only keep correct distance from the left wall if there IS a left wall
+  if (isWallOnLeft) {
+    // Left wall correction
+    // If very far from left wall, turn right a lot
+    if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
+      turnLeftForwardTicksWithDeadEnd(4, false);
+      Serial.println("ADJUSTMENT: Very very far from left wall, turning left ");
     }
-  
-    Serial.print("Front: ");
-    Serial.print(frontDistance);
-    Serial.print("  Left: ");
-    Serial.print(leftDistance);
-    Serial.print("  Right: ");
-    Serial.println(rightDistance);
-    
-    
-    bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
-    bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0) || (rightDistance == 1000);
-    bool isWallForward = (frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0) || (frontDistance == 1000);
-    Serial.print("isWallOnLeft = ");
-    Serial.println(isWallOnLeft);
-    Serial.print("isWallOnRight = ");
-    Serial.println(isWallOnRight);
-    Serial.print("isWallForward = ");
-    Serial.println(isWallForward);
-  
-  // Only keep correct distance from the left wall if there IS a left wall
-    if (isWallOnLeft) {
-      // Left wall correction
-      // If very far from left wall, turn right a lot
-  //    /tested calibration was 6, 4, 2 but we stepped it down
-      if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
-        turnLeftForwardTicksWithDeadEnd(4, false);
-        Serial.println("ADJUSTMENT: Very very far from left wall, turning left ");
-      }
-      else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
-        Serial.println("ADJUSTMENT: Very far from left wall, turning left ");
-        turnLeftForwardTicksWithDeadEnd(3, false);
-      }
-      else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
-        Serial.println("ADJUSTMENT: far from left wall, turning left ");
-        turnLeftForwardTicksWithDeadEnd(2, false);
-      }
-      else if (leftDistance >= FOLLOW_LEFT_WALL_IDEAL - 1 && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + 1) {
-        Serial.println("ADJUSTMENT: ideal distance from left wall, adjustment skipped ");
-      }
-      else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
-        turnRightForwardTicksWithDeadEnd(2, false);
-        Serial.println("ADJUSTMENT: close to left wall, turning right");
-      }
-      else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
-        turnRightForwardTicksWithDeadEnd(3, false);
-        Serial.println("ADJUSTMENT: Very close to left wall, turning right");
-      }
-      else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
-        turnRightForwardTicksWithDeadEnd(4, false);
-        Serial.println("ADJUSTMENT: Very very close to left wall, turning right");
-      }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
+      Serial.println("ADJUSTMENT: Very far from left wall, turning left ");
+      turnLeftForwardTicksWithDeadEnd(3, false);
     }
+    else if (leftDistance > FOLLOW_LEFT_WALL_FAR) {
+      Serial.println("ADJUSTMENT: far from left wall, turning left ");
+      turnLeftForwardTicksWithDeadEnd(2, false);
+    }
+    else if (leftDistance >= FOLLOW_LEFT_WALL_IDEAL - 1 && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + 1) {
+      Serial.println("ADJUSTMENT: ideal distance from left wall, adjustment skipped ");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(2, false);
+      Serial.println("ADJUSTMENT: close to left wall, turning right");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(3, false);
+      Serial.println("ADJUSTMENT: Very close to left wall, turning right");
+    }
+    else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
+      turnRightForwardTicksWithDeadEnd(4, false);
+      Serial.println("ADJUSTMENT: Very very close to left wall, turning right");
+    }
+  }
+
+
   
-    // follows the left wall all the time
-  // if it's at a dead end, escape
-    if(isWallOnLeft && isWallOnRight && isWallForward) {
-      if (leftDistance > rightDistance) {
-        //  if more space on left, recover turning left
-        turnLeftBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
-        turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
-        Serial.println("Dead end with left wall further away, Turning 180 degrees left ");
-      } else { // else, recover turning right
-        turnRightBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
-        turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
-        Serial.println("Dead end with right wall further away, Turning 180 degrees right ");
-      }
-  
-    }
-  //  else if left is open, go left
-    else if(!isWallOnLeft) {
-      moveForwardCm(3);
-      turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
-      moveForwardCm(10); //was 5, now 3, try 10 later
-  //    startLeftForwardTurn();
-      Serial.println("No wall on left, Going forward, then left, then forward");
-    }
-  //  if forward is open, go forward
-    else if (!isWallForward) {
-      moveForwardCm(10);
-      Serial.println("Wall left but none forward, Going forward ");
-    }
-  // if right is open, go right (!isWallOnRight)
-    else {
-      moveForwardCm(3);
-      turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
-      moveForwardCm(10);
-  //    startRightForwardTurn();
-      Serial.println("Wall left and forward, Going forward, right, and then forward");
+
+  // follows the left wall all the time
+// if it's at a dead end, escape
+  if(isWallOnLeft && isWallOnRight && isWallForward) {
+    if (leftDistance > rightDistance) {
+      //  if more space on left, recover turning left
+      turnLeftBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      Serial.println("Dead end with left wall further away, Turning 180 degrees left ");
+    } else { // else, recover turning right
+      turnRightBackwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, true);
+      Serial.println("Dead end with right wall further away, Turning 180 degrees right ");
     }
 
   }
-  
-  stopMotors();
+//  else if left is open, go left
+  else if(!isWallOnLeft) {
+    moveForwardCm(3);
+    turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(10); //was 5, now 3, try 10 later
+//    startLeftForwardTurn();
+    Serial.println("No wall on left, Going forward, then left, then forward");
+  }
+//  if forward is open, go forward
+  else if (!isWallForward) {
+    moveForwardCm(10);
+    Serial.println("Wall left but none forward, Going forward ");
+  }
+// if right is open, go right (!isWallOnRight)
+  else {
+    moveForwardCm(3);
+    turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(10);
+//    startRightForwardTurn();
+    Serial.println("Wall left and forward, Going forward, right, and then forward");
+  }
+
   waitMs(2000);
 }
 
@@ -389,7 +309,6 @@ unsigned long getRightTicks() {
 
 // Stop all motors
 void stopMotors() {
-  clearLights();
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
@@ -398,7 +317,6 @@ void stopMotors() {
 
 // Start moving forward
 void startForwardMotion() {
-  showForwardLights();
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(LEFT_FORWARD_PIN, LEFT_FORWARD_SPEED);
@@ -407,7 +325,6 @@ void startForwardMotion() {
 
 // Start moving backward
 void startBackwardMotion() {
-  showBackwardLights();
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, LEFT_BACKWARD_SPEED);
@@ -416,7 +333,6 @@ void startBackwardMotion() {
 
 // Start turning left
 void startLeftForwardTurn() {
-  showLeftLights();
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
@@ -425,7 +341,6 @@ void startLeftForwardTurn() {
 
 // Start turning left backwards
 void startLeftBackwardTurn() {
-  showRightLights();
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
@@ -498,11 +413,6 @@ void moveForwardCm(float distanceCm) {
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
-    
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
@@ -546,11 +456,6 @@ void moveBackwardCm(float distanceCm) {
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
-    
     unsigned long leftValue = getLeftTicks();
     unsigned long rightValue = getRightTicks();
     unsigned long averageTicks = (leftValue + rightValue) / 2;
@@ -592,10 +497,6 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
     
     unsigned long rightValue = getRightTicks();
 
@@ -643,10 +544,6 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
     
     unsigned long leftValue = getLeftTicks();
 
@@ -695,10 +592,6 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
     
     unsigned long leftValue = getLeftTicks();
 
@@ -747,10 +640,6 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
 
   while (true) {
     gripperUpdate();
-
-    if (handleLineInterrupt()) {
-      return;
-    }
     
     unsigned long rightValue = getRightTicks();
 
@@ -841,173 +730,6 @@ float getAverageDistance(int trigPin, int echoPin, int amount) {
   return sum / validCount;
 }
 
-///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS/FOLLOWING FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
-// calibration function (corrects raw sensor values)
-int applyCalibration(int raw, int sensorIndex) {
-  int v = raw + weights[sensorIndex];
-  return constrain(v, 0, 1023);
-}
-
-void updateLineSensors() {
-  // Read line sensor values
-  for (int i = 0; i < NUM_SENSORS; i++) 
-  {
-    int raw = analogRead(LINE_SENSOR_PINS[i]);
-    lineValues[i] = applyCalibration(raw,i); // apply calibration before using the value
-
-/// Hysterisis logic, only update the sensor value as black if it goes past hysterisis
-    if (lineValues[i] >= LIGHT_SENSOR_BLACK_THRESHOLD) {
-      sensorBlack[i] = true;
-    }
-    else if (lineValues[i] <= LIGHT_SENSOR_WHITE_THRESHOLD) {
-      sensorBlack[i] = false;
-    }
-  }
-}
-
-///Simple function to return if a line is detected on any of the active line sensors
-bool isLineDetected() {
-  updateLineSensors();
-  return getBlackCountSensors() > 0;
-}
-
-///get number of black sensors detected on the line sensors
-int getBlackCountSensors() {
-  int blackCount = 0;
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    if (sensorBlack[i]) {
-      blackCount++;
-    }
-  }
-  return blackCount;
-}
-
-bool handleLineInterrupt() {
-  
-  if (isLineDetected()) {
-    Serial.println("LINE INTERRUPT: black line detected during movement");
-    stopMotors();
-    followTheLine();
-    return true;
-  }
-
-  return false;
-}
-
-void followTheLine() {
-
-  while (true) {
-    updateLineSensors();
-    gripperUpdate();    
-
-  if (getBlackCountSensors() == 0) {
-    stopMotors();
-    return;
-  }
-
-  followTheLineMovement();
-  }
-}
-
-
-void followTheLineMovement() {
-  // Convenience booleans, writes if the sensor is reading black or not (accounting for hysterisis too) to a boolean valye
-  bool leftOuterBlack = sensorBlack[LEFT_OUTER_SENSOR];
-  bool leftMiddleBlack = sensorBlack[LEFT_MIDDLE_SENSOR];
-  bool leftInnerBlack = sensorBlack[LEFT_INNER_SENSOR];
-  bool rightInnerBlack = sensorBlack[RIGHT_INNER_SENSOR];
-  bool rightMiddleBlack = sensorBlack[RIGHT_MIDDLE_SENSOR];
-  bool rightOuterBlack = sensorBlack[RIGHT_OUTER_SENSOR];
-
-// Convenience booleans for if any of the left or right sensors read as black
-  bool anyLeftBlack  = leftOuterBlack || leftMiddleBlack || leftInnerBlack;
-  bool anyRightBlack = rightOuterBlack || rightMiddleBlack || rightInnerBlack;
-
-///count how many sensors counted black
-  int blackCount = getBlackCountSensors();
-
-/// If all sensors are black
-  if (blackCount == NUM_SENSORS) {
-    driveForward(SPEED_NONE + LEFT_MOTOR_CALIBRATION, SPEED_NONE + RIGHT_MOTOR_CALIBRATION);
-    return;
-  }
-
-///if any right sensor and no left sensors
-    if (anyRightBlack && !anyLeftBlack) {
-      // EDGE FIRST
-      if(rightOuterBlack) {
-        driveForward(SPEED_EDGE + CORRECTION_EDGE + LEFT_MOTOR_CALIBRATION, SPEED_EDGE + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-
-      // THEN MIDDLE
-      else if(rightMiddleBlack) {
-        driveForward(SPEED_MIDDLE + CORRECTION_MIDDLE + LEFT_MOTOR_CALIBRATION, SPEED_MIDDLE + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-
-      // THEN INNER
-      else { //rightInnerBlack
-        driveForward(SPEED_INNER + CORRECTION_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-      
-    }
-  // if any left sensors and no right sensors
-    else if (!anyRightBlack && anyLeftBlack) {
-      
-      if (leftOuterBlack) {
-        driveForward(SPEED_EDGE + LEFT_MOTOR_CALIBRATION, SPEED_EDGE + CORRECTION_EDGE + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-
-      else if(leftMiddleBlack) {
-        driveForward(SPEED_MIDDLE + LEFT_MOTOR_CALIBRATION, SPEED_MIDDLE + CORRECTION_MIDDLE + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-
-      else { //leftInnerBlack
-        driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + CORRECTION_INNER + RIGHT_MOTOR_CALIBRATION);
-        return;
-      }
-      
-    }
-
-    else if (rightInnerBlack) {
-      driveForward(SPEED_INNER + CORRECTION_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
-      return;
-    }
-
-    else if (leftInnerBlack) {
-      driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + CORRECTION_INNER + RIGHT_MOTOR_CALIBRATION);
-      return;
-    }
-
-  driveForward(SPEED_INNER + LEFT_MOTOR_CALIBRATION, SPEED_INNER + RIGHT_MOTOR_CALIBRATION);
-}
-
-// motor control
-void driveForward(int left, int right) {
-  showForwardLights();
-// constrain because sometimes value + correction goes over or under 0 and 255 respectively
-  left = constrain(left, 0, 255);
-  right = constrain(right, 0, 255);
-  analogWrite(LEFT_FORWARD_PIN, left);
-  analogWrite(LEFT_BACKWARD_PIN, 0);
-  analogWrite(RIGHT_FORWARD_PIN, right);
-  analogWrite(RIGHT_BACKWARD_PIN, 0);
-}
-
-void driveBackward(int left, int right) {
-  showBackwardLights();
-  left = constrain(left, 0, 255);
-  right = constrain(right, 0, 255);
-  analogWrite(LEFT_FORWARD_PIN, 0);
-  analogWrite(LEFT_BACKWARD_PIN, left);
-  analogWrite(RIGHT_FORWARD_PIN, 0);
-  analogWrite(RIGHT_BACKWARD_PIN, right);
-}
-
 ///~~~~~~~~~~~~~~~~~~~~~~ GRIPPER FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
 void gripperUpdate() {
   // Send one servo pulse every 20ms to keep it powered
@@ -1038,40 +760,4 @@ void waitMs(unsigned long ms) {
   while (millis() - start < ms) {
     gripperUpdate();
   }
-}
-
-
-///~~~~~~~~~~~~~~~~~~~~~~ NEOPIXELS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
-void clearLights() {
-// .show() writes the values to the neopixels
-  pixels.clear();
-  pixels.show();
-}
-
-void showForwardLights() {
-  pixels.clear();
-  pixels.setPixelColor(FRONT_LEFT, pixels.Color(0,150,0));
-  pixels.setPixelColor(FRONT_RIGHT, pixels.Color(0,150,0));
-  pixels.show();
-}
-
-void showBackwardLights() {
-  pixels.clear();
-  pixels.setPixelColor(BACK_LEFT, pixels.Color(150,0,0));
-  pixels.setPixelColor(BACK_RIGHT, pixels.Color(150,0,0));
-  pixels.show();
-}
-
-void showLeftLights() {
-  pixels.clear();
-  pixels.setPixelColor(FRONT_LEFT, pixels.Color(150,120,0));
-  pixels.setPixelColor(BACK_LEFT, pixels.Color(150,120,0));
-  pixels.show();
-}
-
-void showRightLights() {
-  pixels.clear();
-  pixels.setPixelColor(FRONT_RIGHT, pixels.Color(150,120,0));
-  pixels.setPixelColor(BACK_RIGHT, pixels.Color(150,120,0));
-  pixels.show();
 }
