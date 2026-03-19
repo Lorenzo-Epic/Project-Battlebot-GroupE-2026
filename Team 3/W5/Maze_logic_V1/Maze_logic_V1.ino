@@ -4,8 +4,7 @@
 ///LOGIC:
 ///TODO: DECIDE HOW TO HANDLE MEDIAN READINGS THAT RETURN -1;
 ///TODO: if extra time, make it easy to quickly switch between left and right priority
-///TODO: turn left on first all black right after calib, then keep working on motor calib bc its weird
-///TODO: make it stop on the last full black
+///TODO: COMMENT RACE FINISH LOGIC BACK IN, WAS REMOVED FOR TESTING PURPOSES
 
 ///CODE QUALITY:
 ///TODO: spread responsibilities between functions
@@ -14,11 +13,7 @@
 ///TODO: make sure code follows the C++ coding conventions
 
 
-///TODO: use the drive forward with distance correction logic in calibration but should also be interruptible?? not sure if thats even possible though
-///TODO THURSDAY, make it so that the robot after calibrating, when it sees the first black square it turns 90 degrees left, and then forward a bit, 
-///and continues line following. also make it so the next time it sees full black, it stops the robot completely because the race is done, and then the 
-///lights flash rainbow or something lol
-
+///TODO: victory lights for raceday
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 #define LEFT_FORWARD_PIN 6
@@ -30,9 +25,9 @@
 #define  ROTATION_RIGHT_PIN 3
 
 // Motor speeds for straight driving
-#define LEFT_FORWARD_SPEED 255
-#define LEFT_BACKWARD_SPEED 255
-#define RIGHT_FORWARD_SPEED 223
+#define LEFT_FORWARD_SPEED 230 // was 225
+#define LEFT_BACKWARD_SPEED 240
+#define RIGHT_FORWARD_SPEED 198 //was 223
 #define RIGHT_BACKWARD_SPEED 200
 
 // Motor speeds for turning
@@ -49,7 +44,7 @@ const float TICKS_PER_CM = TICKS_PER_REVOLUTION / WHEEL_CIRCUMFERENCE_CM;
 const unsigned long MINIMUM_EDGE_TIME_US = 150;
 
 // 90 degree turn calibration
-#define TURN_90_TARGET_TICKS 32
+#define TURN_90_TARGET_TICKS 34 //was 32
 #define TURN_5_TARGET_TICKS 2
 
 // Timeout for recovery
@@ -62,6 +57,9 @@ volatile unsigned long rightTickCount = 0;
 // Time of previous encoder pulse
 volatile unsigned long lastLeftEdgeTime = 0;
 volatile unsigned long lastRightEdgeTime = 0;
+
+// Constants for recovery
+#define MOVE_RECOVERY_ISDEADEND 1
 
 ///~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS VALUES ~~~~~~~~~~~~~~~~~~~~~~ 
 // front
@@ -85,7 +83,14 @@ volatile unsigned long lastRightEdgeTime = 0;
 #define FOLLOW_LEFT_WALL_VERY_FAR 12
 #define FOLLOW_LEFT_WALL_VERY_VERY_FAR 15
 
+///distance to front wall for deciding if to move forward before turning or not
+#define MAX_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 14
+#define MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 10
+
 #define NUM_SAMPLES_ULTRASOUND 3
+
+#define START_CONDITION_MIN_DISTANCE 20
+#define START_CONDITION_MAX_DISTANCE 25
 
 
 ///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS ~~~~~~~~~~~~~~~~~~~~~~
@@ -171,7 +176,6 @@ const int BACK_RIGHT  = 1;
 // FIND OUT WHY THIS IS NECESSARY AND COMMENT ON IT
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEO, NEO_RGB + NEO_KHZ800);
 
-
 void setup() {
 
   Serial.begin(9600);
@@ -224,21 +228,29 @@ void loop() {
 
   Serial.println("========NEW LOOP========");
 
-/// Keeps gripepr servo powered
-  closeGripper();
-  waitMs(500);
-
+  gripperUpdate();
   updateLineSensors();
+//  waitMs(500);/
 
-///Calibrate line sensors if not already done
+///Calibrate line sensors if not already done, start logic if robot sees something from 20-25cm away from it, waits 3 seconds, then starts. 
   if (!lineSensorsCalibrated) {
-      Serial.println(F("CALIBRATING SENSORS"));
-
-      // Wait until robot is on all white sensors
-      while (!allSensorsWhite()) {
-        gripperUpdate();
-        stopMotors();
-      }
+    openGripper();
+    bool raceStart = false;
+    
+//  Wait for token to be seen, then start auto calibration
+    while (raceStart == false) {
+      raceStart = getStartCondition();
+    }
+    
+    Serial.println(F("RACE START = TRUE, WAITING 3S, CALIBRATING SENSORS"));
+    waitMs(3000);
+    
+    // Wait until robot is on all white sensors
+    while (!allSensorsWhite()) {
+      gripperUpdate();
+      stopMotors();
+    }
+      
     for (int i = 0; i < NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION; i++) {
       
       getAvgBlackOrWhite(1); // calibrate white
@@ -252,15 +264,25 @@ void loop() {
 
       //drive forward to next white
       driveForwardUntilAllWhite();
-      
-      // small settle
-      waitMs(200);
     }
-    Serial.println(F("Moving forward extra 3cm"));
-    waitMs(1000);
-    moveForwardCm(3);
+    
+    Serial.println(F("Moving forward extra cm"));
+//    waitMs(500);/
+//  Move forward untill all black, then keep moving forward until all white, this is to go just over the black square, and then grab the token
+    driveForwardUntilAllBlack();
+    driveForwardUntilAllWhite();
+    closeGripper();
+    moveBackwardCm(3);
+    turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(5);
     lineSensorsCalibrated = true;
     Serial.println(F("CALIBRATING SENSORS DONE"));
+
+//   THIS CODE MIGHT NOT BE NECESSARY BC ITS IN FOLLOW THE LINE
+//  } else if (allSensorsBlack()) {
+//    Serial.println(F("RACE FINISHED"));
+//    stopMotors();
+//    waitMs(1000000); //PLACEHOLDEER FOR VICTORY DANCE OR SOMETHING
   }
 
 /// See if the sensor sees any black lines first, and skip maze logic
@@ -271,16 +293,9 @@ void loop() {
   
   // Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
   //  Average of 3  
-    float frontDistance = constrain(getAverageDistance(TRIG_FRONT, ECHO_FRONT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
-    waitMs(100);
-    float leftDistance  = constrain(getAverageDistance(TRIG_LEFT, ECHO_LEFT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
-    waitMs(100);
-    float rightDistance = constrain(getAverageDistance(TRIG_RIGHT, ECHO_RIGHT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
-  
-  // Front distance can be buggy, try again if it gets an impossibly close value
-    if (frontDistance > 0 && frontDistance < 8) {
-        frontDistance = constrain(getAverageDistance(TRIG_FRONT, ECHO_FRONT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
-    }
+    float frontDistance = getAverageDistanceFront();
+    float leftDistance = getAverageDistanceLeft();
+    float rightDistance = getAverageDistanceRight();
   
     Serial.print(F("Front: "));
     Serial.print(frontDistance);
@@ -288,7 +303,6 @@ void loop() {
     Serial.print(leftDistance);
     Serial.print(F("  Right: "));
     Serial.println(rightDistance);
-    
     
     bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
     bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0) || (rightDistance == 1000);
@@ -306,7 +320,7 @@ void loop() {
       // If very far from left wall, turn right a lot
   //    /tested calibration was 6, 4, 2 but we stepped it down
       if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
-        turnLeftForwardTicksWithDeadEnd(4, false);
+        turnLeftForwardTicksWithDeadEnd(5, false);
         Serial.print(F("ADJUSTMENT: Very very far from left wall, turning left "));
       }
       else if (leftDistance > FOLLOW_LEFT_WALL_VERY_FAR) {
@@ -329,7 +343,7 @@ void loop() {
         Serial.print(F("ADJUSTMENT: Very close to left wall, turning right"));
       }
       else if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_CLOSE) {
-        turnRightForwardTicksWithDeadEnd(4, false);
+        turnRightForwardTicksWithDeadEnd(5, false);
         Serial.print(F("ADJUSTMENT: Very very close to left wall, turning right"));
       }
     }
@@ -351,12 +365,20 @@ void loop() {
     }
   //  else if left is open, go left
     else if(!isWallOnLeft) {
-      moveForwardCm(3);
+      if (isTooCloseToFrontWallForTurnLeftOrRight()) {
+        moveBackwardCm(3); //tune this later if necessary
+      }
+      
+      else if (!cannotBeCloserToWallForTurnLeftOrRight()) {
+        moveForwardCm(3); 
+      }
+
+//    Will always turn left and go forward 10cm
       turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
       moveForwardCm(10); //was 5, now 3, try 10 later
-  //    startLeftForwardTurn();
       Serial.print(F("No wall on left, Going forward, then left, then forward"));
     }
+    
   //  if forward is open, go forward
     else if (!isWallForward) {
       moveForwardCm(10);
@@ -364,17 +386,23 @@ void loop() {
     }
   // if right is open, go right (!isWallOnRight)
     else {
-      moveForwardCm(3);
+      if (isTooCloseToFrontWallForTurnLeftOrRight()) {
+        moveBackwardCm(3); //tune this later if necessary
+      }
+      
+      else if (!cannotBeCloserToWallForTurnLeftOrRight()) {
+        moveForwardCm(3); 
+      }
+      
       turnRightForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
       moveForwardCm(10);
-  //    startRightForwardTurn();
       Serial.print(F("Wall left and forward, Going forward, right, and then forward"));
     }
 
   }
   
   stopMotors();
-  waitMs(2000);
+//  waitMs(500);/
 }
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
@@ -477,7 +505,7 @@ void startLeftForwardTurn() {
 
 // Start turning left backwards
 void startLeftBackwardTurn() {
-  showRightLights();
+  showLeftLights();
   analogWrite(LEFT_FORWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
   analogWrite(RIGHT_FORWARD_PIN, 0);
@@ -486,6 +514,7 @@ void startLeftBackwardTurn() {
 
 // Start turning right
 void startRightForwardTurn() {
+  showRightLights();
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(LEFT_BACKWARD_PIN, 0);
@@ -494,6 +523,7 @@ void startRightForwardTurn() {
 
 // Start turning right backwards
 void startRightBackwardTurn() {
+  showRightLights();
   analogWrite(RIGHT_FORWARD_PIN, 0);
   analogWrite(RIGHT_BACKWARD_PIN, 0);
   analogWrite(LEFT_FORWARD_PIN, 0);
@@ -582,6 +612,7 @@ void moveForwardCm(float distanceCm) {
   }
 
   stopMotors();
+  waitMs(100);
 }
 
 // Move backward a given distance in centimeters
@@ -628,6 +659,7 @@ void moveBackwardCm(float distanceCm) {
   }
 
   stopMotors();
+  waitMs(100);
 }
  
 void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -668,8 +700,9 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - rightValue;
-        moveBackwardCm(6);
-        turnRightBackwardTicksWithDeadEnd(remainingTicks, true);
+        moveBackwardCm(MOVE_RECOVERY_ISDEADEND);
+        turnLeftForwardTicksWithDeadEnd(remainingTicks, true);
+//        turnRightBackwardTicksWithDeadEnd(remainingTicks, true);/
         break;
       } else {
         stopMotors();
@@ -680,6 +713,7 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
     }
   }
   stopMotors();
+  waitMs(100);
 }
 
 void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -720,8 +754,9 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - leftValue;
-        moveBackwardCm(6);
-        turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);
+        moveBackwardCm(MOVE_RECOVERY_ISDEADEND);
+        turnRightForwardTicksWithDeadEnd(remainingTicks, true);
+//        turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);/
         break;
       } else {
         stopMotors();
@@ -732,6 +767,7 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     }
   }
   stopMotors();
+  waitMs(100);
 }
 
 void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -773,8 +809,9 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         remainingTicks = targetTicks - leftValue;
-        moveForwardCm(6);
-        turnRightForwardTicksWithDeadEnd(remainingTicks, true);
+        moveForwardCm(MOVE_RECOVERY_ISDEADEND);
+        turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);
+//        turnRightForwardTicksWithDeadEnd(remainingTicks, true);/
         break;
       } else {
         stopMotors();
@@ -786,6 +823,7 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
   }
 
   stopMotors();
+  waitMs(100);
 }
 
 void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -826,8 +864,9 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - rightValue;
-        moveForwardCm(6);
-        turnLeftForwardTicksWithDeadEnd(remainingTicks, true);
+        moveForwardCm(MOVE_RECOVERY_ISDEADEND);
+        turnRightBackwardTicksWithDeadEnd(remainingTicks, true);
+//        turnLeftForwardTicksWithDeadEnd(remainingTicks, true);/
         break;
       } else {
         stopMotors();
@@ -839,6 +878,7 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
   }
 
   stopMotors();
+  waitMs(100);
 }
 
 
@@ -897,7 +937,40 @@ float getAverageDistance(int trigPin, int echoPin, int amount) {
     return -1;
   }
 
+// Wait at the end of the loop because sometimes this function gets called many times in a row
+  waitMs(30);
   return sum / validCount;
+}
+
+float getAverageDistanceFront() {
+  return constrain(getAverageDistance(TRIG_FRONT, ECHO_FRONT, NUM_SAMPLES_ULTRASOUND), 4, 1000);
+}
+
+float getAverageDistanceLeft() {
+  return constrain(getAverageDistance(TRIG_LEFT, ECHO_LEFT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+}
+
+float getAverageDistanceRight() {
+  return constrain(getAverageDistance(TRIG_RIGHT, ECHO_RIGHT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+}
+
+bool getStartCondition() {
+  float distance = getAverageDistanceFront();
+  Serial.println(F("getStartCondition sensor reading: "));
+  Serial.print(distance);
+  if (distance < START_CONDITION_MAX_DISTANCE && distance > START_CONDITION_MIN_DISTANCE) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool isTooCloseToFrontWallForTurnLeftOrRight() {
+  return (getAverageDistanceFront() <= MAX_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT && getAverageDistanceFront() >= MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT);
+}
+
+bool cannotBeCloserToWallForTurnLeftOrRight() {
+  return (getAverageDistanceFront() <= MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT);
 }
 
 ///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS/FOLLOWING FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
@@ -955,6 +1028,11 @@ void followTheLine() {
   if (getBlackCountSensors() == 0) {
     stopMotors();
     return;
+  } else if (allSensorsBlack()) {
+//    Serial.println(F("RACE FINISHED"));
+//    stopMotors();
+//    openGripper();
+//    waitMs(1000000); //PLACEHOLDEER FOR VICTORY DANCE OR SOMETHING
   }
 
   followTheLineMovement();
@@ -1097,37 +1175,14 @@ bool allSensorsWhite() {
   return true;
 }
 
-// True when all sensors are white
-//bool outerAndCenterAllWhite() {
-//  return isWhite(LEFT_OUTER_SENSOR) && isWhite(S_LEFT_CENTER) &&
-//         isWhite(S_RIGHT_CENTER) && isWhite(S_RIGHT_OUTER);
-//}
-
 // Drive forward slowly until condition met (keeps servo powered)
 void driveForwardUntilAllBlack() {
   resetEncoderCounts();
   startForwardMotion();
 
-  unsigned long lastTicks = 0;
-  unsigned long lastStallTime = millis();
-
   while (!allSensorsBlack()) {
     gripperUpdate();
     correctMotorSpeeds(LEFT_FORWARD_SPEED, RIGHT_FORWARD_SPEED, 1);
-
-    unsigned long leftValue = getLeftTicks();
-    unsigned long rightValue = getRightTicks();
-    unsigned long averageTicks = (leftValue + rightValue) / 2;
-
-    if (averageTicks != lastTicks) {
-      lastTicks = averageTicks;
-      lastStallTime = millis();
-    }
-
-    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
-      stopMotors();
-      return;
-    }
   }
 
   stopMotors();
@@ -1137,26 +1192,9 @@ void driveForwardUntilAllWhite() {
   resetEncoderCounts();
   startForwardMotion();
 
-  unsigned long lastTicks = 0;
-  unsigned long lastStallTime = millis();
-
   while (!allSensorsWhite()) {
     gripperUpdate();
     correctMotorSpeeds(LEFT_FORWARD_SPEED, RIGHT_FORWARD_SPEED, 1);
-
-    unsigned long leftValue = getLeftTicks();
-    unsigned long rightValue = getRightTicks();
-    unsigned long averageTicks = (leftValue + rightValue) / 2;
-
-    if (averageTicks != lastTicks) {
-      lastTicks = averageTicks;
-      lastStallTime = millis();
-    }
-
-    if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
-      stopMotors();
-      return;
-    }
   }
 
   stopMotors();
