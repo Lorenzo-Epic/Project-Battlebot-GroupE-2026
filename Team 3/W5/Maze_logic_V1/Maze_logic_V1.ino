@@ -14,6 +14,10 @@
 
 
 ///TODO: victory lights for raceday
+///TODO: make sure he turns right a bit less stringly when calibrating
+///TODO: instant recovery if hits walls, don't wait for rotors to stop moving
+///TODO: make more constants, like instead of calibrate sensors(1) do calibrate sensors(WHITE)
+///TODO: make a state machine, do lots and lots of abstraction, and put methods in methods, etc.
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
 #define LEFT_FORWARD_PIN 6
@@ -27,7 +31,7 @@
 // Motor speeds for straight driving
 #define LEFT_FORWARD_SPEED 230 // was 225
 #define LEFT_BACKWARD_SPEED 240
-#define RIGHT_FORWARD_SPEED 198 //was 223
+#define RIGHT_FORWARD_SPEED 223 //was 223
 #define RIGHT_BACKWARD_SPEED 200
 
 // Motor speeds for turning
@@ -44,11 +48,11 @@ const float TICKS_PER_CM = TICKS_PER_REVOLUTION / WHEEL_CIRCUMFERENCE_CM;
 const unsigned long MINIMUM_EDGE_TIME_US = 150;
 
 // 90 degree turn calibration
-#define TURN_90_TARGET_TICKS 34 //was 32
+#define TURN_90_TARGET_TICKS 35 //was 32
 #define TURN_5_TARGET_TICKS 2
 
 // Timeout for recovery
-const unsigned long STALL_TIMEOUT_MS = 2000;
+const unsigned long STALL_TIMEOUT_MS = 1000;
 
 // Encoder counters (volatile to ensure it's always upated)
 volatile unsigned long leftTickCount = 0;
@@ -59,7 +63,7 @@ volatile unsigned long lastLeftEdgeTime = 0;
 volatile unsigned long lastRightEdgeTime = 0;
 
 // Constants for recovery
-#define MOVE_RECOVERY_ISDEADEND 1
+#define MOVE_RECOVERY_ISDEADEND_CM 1
 
 ///~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS VALUES ~~~~~~~~~~~~~~~~~~~~~~ 
 // front
@@ -73,12 +77,15 @@ volatile unsigned long lastRightEdgeTime = 0;
 #define ECHO_RIGHT 8
 
 // distance to wall 
+//values for deciding if to go left, straight or right
 #define WALL_DISTANCE_SIDE 18 // cm
 #define WALL_DISTANCE_FRONT 15 //was 18 but idfk bro 
+
+//values for sticking close to the left wall in cm
 #define FOLLOW_LEFT_WALL_VERY_VERY_CLOSE 1
 #define FOLLOW_LEFT_WALL_VERY_CLOSE 3
 #define FOLLOW_LEFT_WALL_CLOSE 5
-#define FOLLOW_LEFT_WALL_IDEAL 7 // cm
+#define FOLLOW_LEFT_WALL_IDEAL 7
 #define FOLLOW_LEFT_WALL_FAR 9
 #define FOLLOW_LEFT_WALL_VERY_FAR 12
 #define FOLLOW_LEFT_WALL_VERY_VERY_FAR 15
@@ -87,8 +94,10 @@ volatile unsigned long lastRightEdgeTime = 0;
 #define MAX_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 14
 #define MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 10
 
+//amount of samples of ultrasound sensors to average out
 #define NUM_SAMPLES_ULTRASOUND 3
 
+//distance that token has to be from ultrasound sensor to start the robot
 #define START_CONDITION_MIN_DISTANCE 20
 #define START_CONDITION_MAX_DISTANCE 25
 
@@ -117,31 +126,35 @@ const int LEFT_OUTER_SENSOR = 3;
 const int LEFT_MIDDLE_SENSOR = 4;
 const int LEFT_INNER_SENSOR = 5;
 
-// speed settings
+// speed settings for line following
 const int SPEED_NONE = 230; //Speed for all sensors detecting white (means black line is perfectly in the center)
 const int SPEED_INNER = 200; //speed for when one of the inner sensors are on black
 const int SPEED_MIDDLE = 180; //speed for when one of the middle sensors (second to edge) are on black
 const int SPEED_EDGE = 0; //speed for when outer sensors (at the edge)are on black
 
+//correction PWM to apply to motor when line followoing based on where the lines are
 const int CORRECTION_EDGE = 180;
 const int CORRECTION_MIDDLE = 105;
 const int CORRECTION_INNER = 75;
 
+//motor calibration for line following
 const int RIGHT_MOTOR_CALIBRATION = 0;
 const int LEFT_MOTOR_CALIBRATION = 25;
 
 ///~~~~~~~~~~~~~~~~~~~~~~ AUTO-CALIBRATION ~~~~~~~~~~~~~~~~~~~~~~
 ///number of samples for the log
 const int SENSOR_SAMPLES_AMOUNT = 10;
+//used to store the average readings of all the white and black sensors
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
 long whiteAvgTotalAverage = 0;
 long blackAvgTotalAverage = 0;
 ///the average targeted by the script, so greater than targetAvg is black, lower is white
 int targetAvg = 500;
-const int CALIB_RUNS = 5;            // number of averaged passes per color
+const int CALIB_RUNS = SENSOR_SAMPLES_AMOUNT;            // number of passes per color, two rows in one log of passes
 float whiteSum[NUM_SENSORS] = {0};
 float blackSum[NUM_SENSORS] = {0};
+//keeps track of how many times the robot went over white or black
 int whiteRuns = 0;
 int blackRuns = 0;
 ///2D log array and index
@@ -173,7 +186,7 @@ const int FRONT_LEFT  = 3;
 const int FRONT_RIGHT = 2;
 const int BACK_LEFT   = 0;
 const int BACK_RIGHT  = 1;
-// FIND OUT WHY THIS IS NECESSARY AND COMMENT ON IT
+// initializes LED's to object pixels
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEO, NEO_RGB + NEO_KHZ800);
 
 void setup() {
@@ -239,18 +252,21 @@ void loop() {
     
 //  Wait for token to be seen, then start auto calibration
     while (raceStart == false) {
+//      turns true if the token is within the correct distance range from the ultrasound sensor
       raceStart = getStartCondition();
     }
-    
+
+//    wait 3 seconds for other robot to drop token and move out the way
     Serial.println(F("RACE START = TRUE, WAITING 3S, CALIBRATING SENSORS"));
     waitMs(3000);
     
-    // Wait until robot is on all white sensors
+    // Wait until robot is on all white sensors, and then start calibrating
     while (!allSensorsWhite()) {
       gripperUpdate();
       stopMotors();
     }
-      
+
+//      repeat for each black row it has to calibrate (this loop does one black and one white row
     for (int i = 0; i < NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION; i++) {
       
       getAvgBlackOrWhite(1); // calibrate white
@@ -265,24 +281,27 @@ void loop() {
       //drive forward to next white
       driveForwardUntilAllWhite();
     }
-    
+
+//    after calibration is complete, go into the maze
     Serial.println(F("Moving forward extra cm"));
-//    waitMs(500);/
+//    waitMs(500);/      repeat for each black row it has to calibrate (this loop does one black and one white row
+    for (int i = 0; i < NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION; i++) {
+      
+      getAvgBlackOrWhite(1); // calibrate white
+  
+      // Move forward until all sensors see black, then calibrate black.
+      driveForwardUntilAllBlack();
+      getAvgBlackOrWhite(2); //
 //  Move forward untill all black, then keep moving forward until all white, this is to go just over the black square, and then grab the token
     driveForwardUntilAllBlack();
     driveForwardUntilAllWhite();
     closeGripper();
+//    move back a bit, turn right, and go into the maze
     moveBackwardCm(3);
     turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
     moveForwardCm(5);
     lineSensorsCalibrated = true;
     Serial.println(F("CALIBRATING SENSORS DONE"));
-
-//   THIS CODE MIGHT NOT BE NECESSARY BC ITS IN FOLLOW THE LINE
-//  } else if (allSensorsBlack()) {
-//    Serial.println(F("RACE FINISHED"));
-//    stopMotors();
-//    waitMs(1000000); //PLACEHOLDEER FOR VICTORY DANCE OR SOMETHING
   }
 
 /// See if the sensor sees any black lines first, and skip maze logic
@@ -291,8 +310,8 @@ void loop() {
     followTheLine();
   } else {
   
-  // Constrained because sometimes the trig doesn't recieve the echo and prints out a number above 1000
-  //  Average of 3  
+
+  //  Average of 3 readings, constrained
     float frontDistance = getAverageDistanceFront();
     float leftDistance = getAverageDistanceLeft();
     float rightDistance = getAverageDistanceRight();
@@ -365,10 +384,11 @@ void loop() {
     }
   //  else if left is open, go left
     else if(!isWallOnLeft) {
+//      if it's too close to the wall to turn left, go back first
       if (isTooCloseToFrontWallForTurnLeftOrRight()) {
         moveBackwardCm(3); //tune this later if necessary
       }
-      
+//      if its far enough from the front wall, move forward a little bit
       else if (!cannotBeCloserToWallForTurnLeftOrRight()) {
         moveForwardCm(3); 
       }
@@ -446,6 +466,7 @@ void resetEncoderCounts() {
 }
 
 // Get current left encoder count, put it into value, and return value, because you cannot resume interrupts after a return
+//noInterrupts because writing while they're enabled might mess up the value
 unsigned long getLeftTicks() {
   unsigned long value;
 
@@ -612,7 +633,7 @@ void moveForwardCm(float distanceCm) {
   }
 
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
 
 // Move backward a given distance in centimeters
@@ -659,7 +680,7 @@ void moveBackwardCm(float distanceCm) {
   }
 
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
  
 void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -700,7 +721,7 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - rightValue;
-        moveBackwardCm(MOVE_RECOVERY_ISDEADEND);
+        moveBackwardCm(MOVE_RECOVERY_ISDEADEND_CM);
         turnLeftForwardTicksWithDeadEnd(remainingTicks, true);
 //        turnRightBackwardTicksWithDeadEnd(remainingTicks, true);/
         break;
@@ -713,7 +734,7 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
     }
   }
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
 
 void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -754,7 +775,7 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - leftValue;
-        moveBackwardCm(MOVE_RECOVERY_ISDEADEND);
+        moveBackwardCm(MOVE_RECOVERY_ISDEADEND_CM);
         turnRightForwardTicksWithDeadEnd(remainingTicks, true);
 //        turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);/
         break;
@@ -767,7 +788,7 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     }
   }
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
 
 void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -809,7 +830,7 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         remainingTicks = targetTicks - leftValue;
-        moveForwardCm(MOVE_RECOVERY_ISDEADEND);
+        moveForwardCm(MOVE_RECOVERY_ISDEADEND_CM);
         turnLeftBackwardTicksWithDeadEnd(remainingTicks, true);
 //        turnRightForwardTicksWithDeadEnd(remainingTicks, true);/
         break;
@@ -823,7 +844,7 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
   }
 
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
 
 void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -864,7 +885,7 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
     if (millis() - lastStallTime >= STALL_TIMEOUT_MS) {
       if (isDeadEnd) {
         unsigned long remainingTicks = targetTicks - rightValue;
-        moveForwardCm(MOVE_RECOVERY_ISDEADEND);
+        moveForwardCm(MOVE_RECOVERY_ISDEADEND_CM);
         turnRightBackwardTicksWithDeadEnd(remainingTicks, true);
 //        turnLeftForwardTicksWithDeadEnd(remainingTicks, true);/
         break;
@@ -878,7 +899,7 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
   }
 
   stopMotors();
-  waitMs(100);
+//  waitMs(100);
 }
 
 
@@ -1021,6 +1042,7 @@ bool handleLineInterrupt() {
 
 void followTheLine() {
 
+//keep updating line sensors and gripper, stop if there's no line, also stop (victory condition) if all sensors are black
   while (true) {
     updateLineSensors();
     gripperUpdate();    
@@ -1029,10 +1051,14 @@ void followTheLine() {
     stopMotors();
     return;
   } else if (allSensorsBlack()) {
-//    Serial.println(F("RACE FINISHED"));
-//    stopMotors();
-//    openGripper();
-//    waitMs(1000000); //PLACEHOLDEER FOR VICTORY DANCE OR SOMETHING
+    Serial.println(F("RACE FINISHED"));
+    stopMotors();
+    openGripper();
+    while (true)
+    {
+      gripperUpdate();
+      //PLACEHOLDEER FOR VICTORY DANCE OR SOMETHING
+    }
   }
 
   followTheLineMovement();
@@ -1145,6 +1171,7 @@ int applyLightSensorCalibration(int raw, int sensorIndex) {
   return constrain(v, 0, 1023);
 }
 
+//hysterisis logic
 bool isBlack(int sensorIndex) {
   int raw = analogRead(LINE_SENSOR_PINS[sensorIndex]);
   int calibrated = applyLightSensorCalibration(raw, sensorIndex);
@@ -1175,7 +1202,7 @@ bool allSensorsWhite() {
   return true;
 }
 
-// Drive forward slowly until condition met (keeps servo powered)
+// Drive forward until condition met (keeps servo powered)
 void driveForwardUntilAllBlack() {
   resetEncoderCounts();
   startForwardMotion();
@@ -1220,12 +1247,6 @@ void readLightSensorsandLog() {
 
 void getAvgBlackOrWhite(int blackOrWhite) {
   // 1 is white, 2 is black
-  if (blackOrWhite == 1) {
-    Serial.print(F("Put robot on white!"));
-  }
-  else {
-    Serial.print(F("Put robot on black!"));
-  }
 
   // take multiple runs and accumulate
   for (int run = 0; run < CALIB_RUNS; run++) {
@@ -1242,9 +1263,13 @@ void getAvgBlackOrWhite(int blackOrWhite) {
         sum += sensorLog[i][g];
       }
       float avg = (float)sum / (float)SENSOR_SAMPLES_AMOUNT;
-
-      if (blackOrWhite == 1) whiteSum[i] += avg;
-      else                   blackSum[i] += avg;
+//      adds average to white or black sum respectively
+      if (blackOrWhite == 1) {
+        whiteSum[i] += avg;
+      }
+      else {
+        blackSum[i] += avg;
+      }
     }
 
     waitMs(30); // small pause between runs
@@ -1265,25 +1290,9 @@ void getAvgBlackOrWhite(int blackOrWhite) {
   if (blackOrWhite == 1) {
     whiteRuns += CALIB_RUNS;
     whiteAvgTotalAverage = totalAverage / NUM_SENSORS;
-    Serial.print(F("White total average: "));
-    Serial.println(whiteAvgTotalAverage);
   } else {
     blackRuns += CALIB_RUNS;
     blackAvgTotalAverage = totalAverage / NUM_SENSORS;
-    Serial.print(F("Black total average: "));
-    Serial.println(blackAvgTotalAverage);
-  }
-
-  // logging
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    Serial.print(F("Sensor "));
-    Serial.print(i);
-    Serial.print(F(" average: "));
-    if (blackOrWhite == 1) {
-      Serial.println(whiteAvg[i]);
-    } else {
-      Serial.println(blackAvg[i]);
-    }
   }
 }
 
@@ -1301,34 +1310,13 @@ void calculateLightSensorsCalibration() {
 
    long midPoint = (whiteAvgTotalAverage + blackAvgTotalAverage) / 2;
 
-   Serial.print(F("White total avg: "));
-   Serial.print(whiteAvgTotalAverage);
-   Serial.print(F("\n"));
-
-   Serial.print(F("Black total avg: "));
-   Serial.print(blackAvgTotalAverage);
-   Serial.print(F("\n"));
-
-   Serial.print(F("Midpoint: "));
-   Serial.print(midPoint);
-   Serial.print(F("\n"));
-
-   // Per-sensor calibration (each sensor gets its own weight)
+//    Per-sensor calibration (each sensor gets its own weight)
    for (int i = 0; i < NUM_SENSORS; i++) {
      long sensorMidPoint = (long)((whiteAvg[i] + blackAvg[i]) / 2.0f);
-     weights[i] = (int)(targetAvg - sensorMidPoint);
-
-     Serial.print(F("Sensor "));
-     Serial.print(i);
-     Serial.print(F(" midpoint: "));
-     Serial.print(sensorMidPoint);
-     Serial.print(F(" weight: "));
-     Serial.print(weights[i]);
-     Serial.print(F("\n"));
-    
+     weights[i] = (int)(targetAvg - sensorMidPoint);    
    }
 
-   Serial.print(F("{"));
+   Serial.print(F("Calibration values: {"));
    for (int i = 0; i < NUM_SENSORS; i++) {
     Serial.print(weights[i]);
     if (i < NUM_SENSORS - 1) {
