@@ -1,3 +1,10 @@
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN 7
+#define NUM_LEDS 4
+
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
 // ================= MOTOR PINS =================
 const int LEFT_FWD  = 11;
 const int LEFT_BWD  = 9;
@@ -63,6 +70,46 @@ enum RobotMode {
 
 RobotMode mode = WAIT_OBJECT;
 
+// ================= LED CONTROL =================
+void ledsBaseGreen() {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    strip.setPixelColor(i, strip.Color(0, 40, 0));
+  }
+}
+
+void ledsForward() {
+  ledsBaseGreen();
+  strip.setPixelColor(3, strip.Color(255, 0, 0)); // перед лев
+  strip.setPixelColor(2, strip.Color(255, 0, 0)); // перед прав
+  strip.show();
+}
+
+void ledsBack() {
+  ledsBaseGreen();
+  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад прав
+  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад лев
+  strip.show();
+}
+
+void ledsLeft() {
+  ledsBaseGreen();
+  strip.setPixelColor(3, strip.Color(255, 0, 0)); // перед лев
+  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад лев
+  strip.show();
+}
+
+void ledsRight() {
+  ledsBaseGreen();
+  strip.setPixelColor(2, strip.Color(255, 0, 0)); // перед прав
+  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад прав
+  strip.show();
+}
+
+void ledsIdle() {
+  ledsBaseGreen();
+  strip.show();
+}
+
 // ================= MOTOR CONTROL =================
 void stopMotors() {
   analogWrite(LEFT_FWD, 0);
@@ -70,10 +117,13 @@ void stopMotors() {
   analogWrite(RIGHT_FWD, 0);
   analogWrite(RIGHT_BWD, 0);
 
+  ledsIdle();
   startBoostNeeded = true;
 }
 
 void forward(int spd) {
+  ledsForward();
+
   if (startBoostNeeded) {
     analogWrite(LEFT_FWD, 255);
     analogWrite(LEFT_BWD, 0);
@@ -91,20 +141,26 @@ void forward(int spd) {
 }
 
 void backward(int spd) {
+  ledsBack();
+
   analogWrite(LEFT_FWD, 0);
   analogWrite(LEFT_BWD, spd);
   analogWrite(RIGHT_FWD, 0);
-  analogWrite(RIGHT_BWD, spd + 30);
+  analogWrite(RIGHT_BWD, constrain(spd + 30, 0, 255));
 }
 
 void turnLeft() {
+  ledsLeft();
+
   analogWrite(LEFT_FWD, 0);
   analogWrite(LEFT_BWD, 0);
-  analogWrite(RIGHT_FWD, TURN_SPEED + 40);
+  analogWrite(RIGHT_FWD, constrain(TURN_SPEED + 40, 0, 255));
   analogWrite(RIGHT_BWD, 0);
 }
 
 void turnRight() {
+  ledsRight();
+
   analogWrite(LEFT_FWD, TURN_SPEED);
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, 0);
@@ -112,13 +168,17 @@ void turnRight() {
 }
 
 void pivotLeft() {
+  ledsLeft();
+
   analogWrite(LEFT_FWD, 0);
-  analogWrite(LEFT_BWD, BASE_SPEED + 20);
+  analogWrite(LEFT_BWD, constrain(BASE_SPEED + 20, 0, 255));
   analogWrite(RIGHT_FWD, BASE_SPEED);
   analogWrite(RIGHT_BWD, 0);
 }
 
 void slightLeft() {
+  ledsLeft();
+
   analogWrite(LEFT_FWD, 0);
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, BASE_SPEED);
@@ -126,13 +186,17 @@ void slightLeft() {
 }
 
 void slightRight() {
-  analogWrite(LEFT_FWD, BASE_SPEED + 20);
+  ledsRight();
+
+  analogWrite(LEFT_FWD, constrain(BASE_SPEED + 20, 0, 255));
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, 0);
   analogWrite(RIGHT_BWD, 0);
 }
 
 void forwardToObject(int spd) {
+  ledsForward();
+
   if (startBoostNeeded) {
     analogWrite(LEFT_FWD, 255);
     analogWrite(LEFT_BWD, 0);
@@ -249,6 +313,8 @@ bool isFinishSquare() {
 
 // ================= SPECIAL ACTIONS =================
 void turnAround() {
+  ledsRight();
+
   analogWrite(LEFT_FWD, TURN_SPEED);
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, 0);
@@ -403,6 +469,9 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(SERVO, OUTPUT);
+
+  strip.begin();
+  ledsIdle();
 
   Serial.begin(9600);
   Serial.println("System Online");
