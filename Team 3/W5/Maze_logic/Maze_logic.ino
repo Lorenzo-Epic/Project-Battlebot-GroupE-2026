@@ -9,14 +9,9 @@
 ///CODE QUALITY:
 ///TODO: spread responsibilities between functions
 ///TODO: remove all logic from main loop and only call function
-///TODO: make constants instead of hardcoding the RGB values for the neopixels
+///TODO: make constants instead of hardcoding the values for anything
 ///TODO: make sure code follows the C++ coding conventions
 
-
-///TODO: victory lights for raceday
-///TODO: make sure he turns right a bit less stringly when calibrating
-///TODO: instant recovery if hits walls, don't wait for rotors to stop moving
-///TODO: make more constants, like instead of calibrate sensors(1) do calibrate sensors(WHITE)
 ///TODO: make a state machine, do lots and lots of abstraction, and put methods in methods, etc.
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS VALUES ~~~~~~~~~~~~~~~~~~~~~~
@@ -63,7 +58,7 @@ volatile unsigned long lastLeftEdgeTime = 0;
 volatile unsigned long lastRightEdgeTime = 0;
 
 // Constants for recovery
-#define MOVE_RECOVERY_ISDEADEND_CM 1
+#define MOVE_RECOVERY_ISDEADEND_CM 2
 
 ///~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS VALUES ~~~~~~~~~~~~~~~~~~~~~~ 
 // front
@@ -101,6 +96,16 @@ volatile unsigned long lastRightEdgeTime = 0;
 #define START_CONDITION_MIN_DISTANCE 20
 #define START_CONDITION_MAX_DISTANCE 25
 
+// ultrasound sensors wait a certain ms between measuremnts to avoid bad readings, this is that value in ms (was 30, shortened to 10 for speed)
+#define ULTRASOUND_SENSOR_MEASURMENT_DELAY_TIME_MS 10
+
+// Time to wait in ms after robot first sees the cone, to allow the robot that drops the cone to move out of the way
+#define MS_WAIT_AFTER_SEEING_CONE 3000
+
+// recovery constants for ultrasound average reading functions
+#define ULTRASOUND_SENSOR_MAX_FAILS_IN_A_ROW 3
+#define ULTRASOUND_SENSOR_FAIL_RECOVERY_CM 3
+
 
 ///~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS ~~~~~~~~~~~~~~~~~~~~~~
 // D1 = A0, D2 = A1, D3 = A2, D4 = A3, D5 = A4, D6 = A5, D7 = A6, D8 = A7
@@ -108,7 +113,7 @@ volatile unsigned long lastRightEdgeTime = 0;
 const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A5, A6, A7};
 int lineValues[NUM_SENSORS]; // this keeps the sensor readings of the moment
 /// pin A3 is used for trig sensor right ultrasound sensor
-// sensor calibration
+// sensor calibration initial weightings (gets calibrated properly later)
 int weights[NUM_SENSORS] = {-273, -264, -253, -276, -309, -322};
 
 // thresholds
@@ -140,6 +145,10 @@ const int CORRECTION_INNER = 75;
 //motor calibration for line following
 const int RIGHT_MOTOR_CALIBRATION = 0;
 const int LEFT_MOTOR_CALIBRATION = 25;
+
+// for getAvgBlackOrWhite, WHITE = 1 and BLACK = 2, this just makes reading the code easier
+const int WHITE = 1;
+const int BLACK = 2;
 
 ///~~~~~~~~~~~~~~~~~~~~~~ AUTO-CALIBRATION ~~~~~~~~~~~~~~~~~~~~~~
 ///number of samples for the log
@@ -243,7 +252,6 @@ void loop() {
 
   gripperUpdate();
   updateLineSensors();
-//  waitMs(500);/
 
 ///Calibrate line sensors if not already done, start logic if robot sees something from 20-25cm away from it, waits 3 seconds, then starts. 
   if (!lineSensorsCalibrated) {
@@ -252,13 +260,13 @@ void loop() {
     
 //  Wait for token to be seen, then start auto calibration
     while (raceStart == false) {
-//      turns true if the token is within the correct distance range from the ultrasound sensor
+//  Turns true if the token is within the correct distance range from the ultrasound sensor
       raceStart = getStartCondition();
     }
 
-//    wait 3 seconds for other robot to drop token and move out the way
+// wait 3 seconds for other robot to drop token and move out the way
     Serial.println(F("RACE START = TRUE, WAITING 3S, CALIBRATING SENSORS"));
-    waitMs(3000);
+    waitMs(MS_WAIT_AFTER_SEEING_CONE);
     
     // Wait until robot is on all white sensors, and then start calibrating
     while (!allSensorsWhite()) {
@@ -266,14 +274,14 @@ void loop() {
       stopMotors();
     }
 
-//      repeat for each black row it has to calibrate (this loop does one black and one white row
+// Repeat for each black row it has to calibrate (this loop does one black and one white row
     for (int i = 0; i < NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION; i++) {
       
-      getAvgBlackOrWhite(1); // calibrate white
+      getAvgBlackOrWhite(WHITE);
   
       // Move forward until all sensors see black, then calibrate black.
       driveForwardUntilAllBlack();
-      getAvgBlackOrWhite(2); // calibrate BLACK
+      getAvgBlackOrWhite(BLACK);
   
       // Compute weights from the two captured averages
       calculateLightSensorsCalibration();      
@@ -284,14 +292,6 @@ void loop() {
 
 //    after calibration is complete, go into the maze
     Serial.println(F("Moving forward extra cm"));
-//    waitMs(500);/      repeat for each black row it has to calibrate (this loop does one black and one white row
-    for (int i = 0; i < NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION; i++) {
-      
-      getAvgBlackOrWhite(1); // calibrate white
-  
-      // Move forward until all sensors see black, then calibrate black.
-      driveForwardUntilAllBlack();
-      getAvgBlackOrWhite(2); //
 //  Move forward untill all black, then keep moving forward until all white, this is to go just over the black square, and then grab the token
     driveForwardUntilAllBlack();
     driveForwardUntilAllWhite();
@@ -323,9 +323,9 @@ void loop() {
     Serial.print(F("  Right: "));
     Serial.println(rightDistance);
     
-    bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
-    bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0) || (rightDistance == 1000);
-    bool isWallForward = (frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0) || (frontDistance == 1000);
+    bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;;
+    bool isWallOnRight = (rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0);
+    bool isWallForward = (frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0);
     Serial.print(F("isWallOnLeft = "));
     Serial.println(isWallOnLeft);
     Serial.print(F("isWallOnRight = "));
@@ -400,10 +400,29 @@ void loop() {
     }
     
   //  if forward is open, go forward
+    // else if (!isWallForward) {
+    //   moveForwardCm(10);
+    //   Serial.print(F("Wall left but none forward, Going forward "));
+    // }
+
     else if (!isWallForward) {
-      moveForwardCm(10);
-      Serial.print(F("Wall left but none forward, Going forward "));
+      float moveCm = 10;
+
+    // only shorten the forward move if both sides are not extremely close
+    if (frontDistance > 0 && frontDistance < (MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT + moveCm) && leftDistance > 3 && rightDistance > 3) {
+      moveCm = 5;
+      Serial.println(F("FORWARD OPEN BUT CLOSE, SHORTENING MOVE TO: "));
+      Serial.println(moveCm);
+      Serial.println(F("FRONT DISTANCE: "));
+      Serial.println(frontDistance);
     }
+
+  if (moveCm > 0) {
+    moveForwardCm(moveCm);
+  }
+
+  Serial.print(F("Wall left but none forward, Going forward "));
+}
   // if right is open, go right (!isWallOnRight)
     else {
       if (isTooCloseToFrontWallForTurnLeftOrRight()) {
@@ -422,7 +441,6 @@ void loop() {
   }
   
   stopMotors();
-//  waitMs(500);/
 }
 
 ///~~~~~~~~~~~~~~~~~~~~~~ MOTORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
@@ -633,7 +651,6 @@ void moveForwardCm(float distanceCm) {
   }
 
   stopMotors();
-//  waitMs(100);
 }
 
 // Move backward a given distance in centimeters
@@ -680,7 +697,6 @@ void moveBackwardCm(float distanceCm) {
   }
 
   stopMotors();
-//  waitMs(100);
 }
  
 void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -734,7 +750,6 @@ void turnLeftForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEn
     }
   }
   stopMotors();
-//  waitMs(100);
 }
 
 void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -788,7 +803,6 @@ void turnRightForwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
     }
   }
   stopMotors();
-//  waitMs(100);
 }
 
 void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -844,7 +858,6 @@ void turnLeftBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadE
   }
 
   stopMotors();
-//  waitMs(100);
 }
 
 void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDeadEnd) {
@@ -899,20 +912,16 @@ void turnRightBackwardTicksWithDeadEnd(unsigned long targetTicks, boolean isDead
   }
 
   stopMotors();
-//  waitMs(100);
 }
-
-
-
 
 ///~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
 float getDistance(int trigPin, int echoPin) 
 {
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(2); //was 50, now 2
+  delayMicroseconds(2);
 
   digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10); //was 100, now 10
+  delayMicroseconds(10);
 
   digitalWrite(trigPin, LOW);
 
@@ -951,7 +960,7 @@ float getAverageDistance(int trigPin, int echoPin, int amount) {
       validCount++;
     }
 
-    waitMs(30);
+    waitMs(ULTRASOUND_SENSOR_MEASURMENT_DELAY_TIME_MS);
   }
 
   if (validCount < amount) {
@@ -959,20 +968,71 @@ float getAverageDistance(int trigPin, int echoPin, int amount) {
   }
 
 // Wait at the end of the loop because sometimes this function gets called many times in a row
-  waitMs(30);
+  waitMs(ULTRASOUND_SENSOR_MEASURMENT_DELAY_TIME_MS);
   return sum / validCount;
 }
 
+float getAverageDistanceWithRetry(int trigPin, int echoPin) {
+  int failedTimesInARow = 0;
+
+  while (failedTimesInARow < ULTRASOUND_SENSOR_MAX_FAILS_IN_A_ROW) {
+    float distance = getAverageDistance(trigPin, echoPin, NUM_SAMPLES_ULTRASOUND);
+
+    if (distance != -1) {
+      return distance;
+    }
+
+    failedTimesInARow++;
+    Serial.print(F("ULTRASOUND FAILED, RETRYING. FAIL COUNT = "));
+    Serial.println(failedTimesInARow);
+  }
+
+  Serial.println(F("ULTRASOUND FAILED TOO MANY TIMES, MOVING BACKWARD"));
+  moveBackwardCm(ULTRASOUND_SENSOR_FAIL_RECOVERY_CM);
+
+  return -1;
+}
+
+// float getAverageDistanceFront() {
+//   return constrain(getAverageDistance(TRIG_FRONT, ECHO_FRONT, NUM_SAMPLES_ULTRASOUND), 4, 1000);
+// }
+
+// float getAverageDistanceLeft() {
+//   return constrain(getAverageDistance(TRIG_LEFT, ECHO_LEFT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+// }
+
+// float getAverageDistanceRight() {
+//   return constrain(getAverageDistance(TRIG_RIGHT, ECHO_RIGHT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+// }
+
 float getAverageDistanceFront() {
-  return constrain(getAverageDistance(TRIG_FRONT, ECHO_FRONT, NUM_SAMPLES_ULTRASOUND), 4, 1000);
+  float distance = getAverageDistanceWithRetry(TRIG_FRONT, ECHO_FRONT);
+
+  if (distance == -1) {
+    return -1;
+  }
+
+  return constrain(distance, 4, 1000);
 }
 
 float getAverageDistanceLeft() {
-  return constrain(getAverageDistance(TRIG_LEFT, ECHO_LEFT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+  float distance = getAverageDistanceWithRetry(TRIG_LEFT, ECHO_LEFT);
+
+  if (distance == -1) {
+    return -1;
+  }
+
+  return constrain(distance, 0, 1000);
 }
 
 float getAverageDistanceRight() {
-  return constrain(getAverageDistance(TRIG_RIGHT, ECHO_RIGHT, NUM_SAMPLES_ULTRASOUND), 0, 1000);
+  float distance = getAverageDistanceWithRetry(TRIG_RIGHT, ECHO_RIGHT);
+
+  if (distance == -1) {
+    return -1;
+  }
+
+  return constrain(distance, 0, 1000);
 }
 
 bool getStartCondition() {
@@ -1271,8 +1331,6 @@ void getAvgBlackOrWhite(int blackOrWhite) {
         blackSum[i] += avg;
       }
     }
-
-    waitMs(30); // small pause between runs
   }
 
   // finalize the averages from accumulated sums
