@@ -287,7 +287,6 @@ void readSensors(bool &farRight, bool &right, bool &center, bool &left, bool &fa
 
   for (int i = 0; i < 8; i++) {
     int v = analogRead(sensorPins[i]);
-
     if (v > LINE_TH) {
       if (i == 0 || i == 1) farRight = true;
       if (i == 2) right = true;
@@ -300,26 +299,22 @@ void readSensors(bool &farRight, bool &right, bool &center, bool &left, bool &fa
 
 bool isFinishSquare() {
   int blackCount = 0;
-
   for (int i = 0; i < 8; i++) {
     int v = analogRead(sensorPins[i]);
     if (v > LINE_TH) {
       blackCount++;
     }
   }
-
   return (blackCount >= 6);
 }
 
 // ================= SPECIAL ACTIONS =================
 void turnAround() {
   ledsRight();
-
   analogWrite(LEFT_FWD, TURN_SPEED);
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, 0);
   analogWrite(RIGHT_BWD, TURN_SPEED);
-
   delayWithGripper(400);
 
   stopMotors();
@@ -337,7 +332,6 @@ void finishStop() {
     backward(BASE_SPEED);
     serviceGripper();
   }
-
   stopMotors();
   delayWithGripper(200);
 
@@ -366,11 +360,9 @@ void lineFollow() {
   if (mode == MAZE_MODE && isObstacleAhead()) {
     stopMotors();
     delayWithGripper(100);
-
     turningRight = false;
     turningLeft = false;
     finishCandidate = false;
-
     turnAround();
     lastTurn = 1;
     return;
@@ -386,7 +378,6 @@ void lineFollow() {
 
     if (finishCandidate) {
       forward(FINISH_SLOW_SPEED);
-
       if (finishNow) {
         if (millis() - finishCandidateStart >= FINISH_CHECK_TIME) {
           finishStop();
@@ -395,7 +386,6 @@ void lineFollow() {
       } else {
         finishCandidate = false;
       }
-
       return;
     }
   }
@@ -498,6 +488,12 @@ void loop() {
       Serial.println(distance);
 
       if (distance > 0 && distance <= OBJECT_DETECT_DISTANCE) {
+        Serial.println("OBJECT DETECTED - WAIT 3s");
+        unsigned long waitStart = millis();
+        while (millis() - waitStart < 3000) {
+          serviceGripper();
+          stopMotors();
+        }
         delayWithGripper(200);
         moveStartTime = millis();
         mode = GO_TO_OBJECT;
