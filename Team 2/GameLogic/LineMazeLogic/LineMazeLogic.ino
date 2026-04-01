@@ -24,10 +24,10 @@ const int ECHO_PIN = 12;
 int sensorPins[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
 
 // ================= SPEED SETTINGS =================
-const int BASE_SPEED = 200;
-const int TURN_SPEED = 190;
-const int SEARCH_SPEED = 180;
-const int APPROACH_SPEED = 180;
+const int BASE_SPEED = 205;
+const int TURN_SPEED = 200;
+const int SEARCH_SPEED = 200;
+const int APPROACH_SPEED = 190;
 const int LINE_TH = 800;
 
 // ================= FINISH SETTINGS =================
@@ -39,7 +39,7 @@ const int OBJECT_DETECT_DISTANCE = 30;
 const unsigned long APPROACH_TIME = 2000;
 const unsigned long BACK_TIME = 3000;
 const unsigned long LEFT_TURN_90_TIME = 800;
-const unsigned long FORWARD_AFTER_GRAB_TIME = 700;
+const unsigned long FORWARD_AFTER_GRAB_TIME = 480;
 
 // ================= OBSTACLE SETTINGS =================
 const int OBSTACLE_DISTANCE = 10;
@@ -134,9 +134,9 @@ void forward(int spd) {
     startBoostNeeded = false;
   }
 
-  analogWrite(LEFT_FWD, spd);
+  analogWrite(LEFT_FWD, spd - 20);
   analogWrite(LEFT_BWD, 0);
-  analogWrite(RIGHT_FWD, constrain(spd + 40, 0, 255));
+  analogWrite(RIGHT_FWD, spd);
   analogWrite(RIGHT_BWD, 0);
 }
 
@@ -207,7 +207,7 @@ void forwardToObject(int spd) {
     startBoostNeeded = false;
   }
 
-  analogWrite(LEFT_FWD, spd - 10);
+  analogWrite(LEFT_FWD, spd - 20);
   analogWrite(LEFT_BWD, 0);
   analogWrite(RIGHT_FWD, constrain(spd + 40, 0, 255));
   analogWrite(RIGHT_BWD, 0);
@@ -305,7 +305,7 @@ bool isFinishSquare() {
       blackCount++;
     }
   }
-  return (blackCount >= 6);
+  return (blackCount >= 7);
 }
 
 // ================= SPECIAL ACTIONS =================
