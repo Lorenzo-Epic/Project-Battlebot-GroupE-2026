@@ -94,14 +94,14 @@ void ledsBack() {
 void ledsLeft() {
   ledsBaseGreen();
   strip.setPixelColor(3, strip.Color(255, 0, 0)); // перед лев
-  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад лев
+  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад лев
   strip.show();
 }
 
 void ledsRight() {
   ledsBaseGreen();
   strip.setPixelColor(2, strip.Color(255, 0, 0)); // перед прав
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад прав
+  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад прав
   strip.show();
 }
 
