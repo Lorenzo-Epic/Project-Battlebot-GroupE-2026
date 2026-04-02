@@ -1,14 +1,5 @@
 #include <Adafruit_NeoPixel.h>
 
-// ~~~~~~~~~~ NOT DONE
-// LOGIC:
-// TODO: if extra time, make it easy to quickly switch between left and right priority
-
-// CODE QUALITY:
-// TODO: spread responsibilities between functions
-// TODO: make sure code follows the C++ coding conventions
-// TODO: make a state machine, do lots and lots of abstraction, and put methods in methods, etc.
-
 // ~~~~~~~~~~~~~~~~~~~~~~ MOVEMENT / LOGIC CONSTANTS ~~~~~~~~~~~~~~~~~~~~~~
 #define INITIAL_BACKUP_AFTER_GRAB_CM 3
 #define INITIAL_MOVE_INTO_MAZE_CM 5
@@ -22,7 +13,7 @@
 #define RIGHT_OPEN_POST_TURN_FORWARD_CM 10
 
 #define FORWARD_OPEN_DEFAULT_MOVE_CM 10
-#define FORWARD_OPEN_SHORT_MOVE_CM 5
+#define FORWARD_OPEN_SHORT_MOVE_CM 5 
 #define FORWARD_OPEN_SIDE_CLEARANCE_CM 3
 
 #define STALL_RECOVERY_BACKWARD_CM 5
@@ -32,9 +23,9 @@
 #define TURN_STALL_RECOVERY_FORWARD_CM 3
 #define TURN_STALL_RECOVERY_TICKS 5
 
-#define LEFT_WALL_ADJUST_SMALL_TICKS 2
-#define LEFT_WALL_ADJUST_MEDIUM_TICKS 3
-#define LEFT_WALL_ADJUST_LARGE_TICKS 5
+#define LEFT_WALL_ADJUST_SMALL_TICKS 1 //was 2
+#define LEFT_WALL_ADJUST_MEDIUM_TICKS 2 //was 3
+#define LEFT_WALL_ADJUST_LARGE_TICKS 4 //was 5
 #define FOLLOW_LEFT_WALL_IDEAL_TOLERANCE 1
 
 #define MOTOR_ENCODER_CORRECTION_GAIN 35
@@ -56,13 +47,13 @@
 
 // Motor speeds for straight driving
 #define LEFT_FORWARD_SPEED 230
-#define LEFT_BACKWARD_SPEED 240
+#define LEFT_BACKWARD_SPEED 230
 #define RIGHT_FORWARD_SPEED 223
-#define RIGHT_BACKWARD_SPEED 200
+#define RIGHT_BACKWARD_SPEED 223
 
 // Motor speeds for turning
-#define LEFT_TURN_SPEED 210
-#define RIGHT_TURN_SPEED 200
+#define LEFT_TURN_SPEED 230
+#define RIGHT_TURN_SPEED 220
 
 // Wheel and encoder values
 const float WHEEL_DIAMETER_CM = 6.5f;
@@ -75,7 +66,6 @@ const unsigned long MINIMUM_EDGE_TIME_US = 150;
 
 // 90 degree turn calibration
 #define TURN_90_TARGET_TICKS 35
-#define TURN_5_TARGET_TICKS 2
 
 // Timeout for recovery
 const unsigned long STALL_TIMEOUT_MS = 1000;
@@ -145,6 +135,8 @@ const float NO_DISTANCE_READING = -1.0f;
 // distance to front wall for deciding if to move forward before turning or not
 #define MAX_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 14
 #define MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT 10
+// safety margin for calculating if robot should move full distance or not 
+#define DISTANCE_SAFETY_MARGIN_CM 1
 
 // amount of samples of ultrasound sensors to average out
 #define NUM_SAMPLES_ULTRASOUND 3
@@ -158,17 +150,16 @@ const float NO_DISTANCE_READING = -1.0f;
 
 // Time to wait in ms after robot first sees the cone, to allow the robot
 // that drops the cone to move out of the way
-#define MS_WAIT_AFTER_SEEING_CONE 3000
+#define MS_WAIT_AFTER_SEEING_CONE 6000
 
 // recovery constants for ultrasound average reading functions
 #define ULTRASOUND_SENSOR_MAX_FAILS_IN_A_ROW 3
-#define ULTRASOUND_SENSOR_FAIL_RECOVERY_CM 3
 
 // ~~~~~~~~~~~~~~~~~~~~~~ LINE SENSORS ~~~~~~~~~~~~~~~~~~~~~~
 // D1 = A0, D2 = A1, D3 = A2, D4 = A3, D5 = A4, D6 = A5, D7 = A6, D8 = A7
 #define NUM_SENSORS 6
 const int LINE_SENSOR_PINS[NUM_SENSORS] = {A0, A1, A2, A5, A6, A7};
-int lineValues[NUM_SENSORS];  // this keeps the sensor readings of the moment
+// int lineValues[NUM_SENSORS];  // this keeps the sensor readings of the moment
 
 // pin A3 is used for trig sensor right ultrasound sensor
 // sensor calibration initial weightings (gets calibrated properly later)
@@ -208,6 +199,17 @@ const int LEFT_MOTOR_CALIBRATION = 25;
 const int WHITE = 1;
 const int BLACK = 2;
 
+// Line following helper booleans declaration so that they're global
+bool leftOuterBlack;
+bool leftMiddleBlack;
+bool leftInnerBlack;
+bool rightInnerBlack;
+bool rightMiddleBlack;
+bool rightOuterBlack;
+bool anyLeftBlack;
+bool anyRightBlack;
+int blackCount;
+
 // ~~~~~~~~~~~~~~~~~~~~~~ AUTO-CALIBRATION ~~~~~~~~~~~~~~~~~~~~~~
 // number of samples for the log
 const int SENSOR_SAMPLES_AMOUNT = 10;
@@ -215,13 +217,12 @@ const int SENSOR_SAMPLES_AMOUNT = 10;
 // used to store the average readings of all the white and black sensors
 float whiteAvg[NUM_SENSORS] = {0};
 float blackAvg[NUM_SENSORS] = {0};
-long whiteAvgTotalAverage = 0;
-long blackAvgTotalAverage = 0;
+// long whiteAvgTotalAverage = 0;
+// long blackAvgTotalAverage = 0;
 
 // the average targeted by the script, so greater than targetAvg is black,
 // lower is white
 const int TARGET_AVG = 500;
-const int CALIB_RUNS = SENSOR_SAMPLES_AMOUNT;
 
 float whiteSum[NUM_SENSORS] = {0};
 float blackSum[NUM_SENSORS] = {0};
@@ -247,8 +248,8 @@ const int NUMBER_OF_BLACK_LINES_INITIAL_CALIBRATION = 3;
 #define GRIPPER_CLOSE_US 1050
 #define SERVO_REFRESH_INTERVAL_MS 20
 
-// This will be the target pulse width for the gripper
-volatile int gripperPulseUs = GRIPPER_OPEN_US;
+// This will be the target pulse width for the gripper (was volatile int)
+int gripperPulseUs = GRIPPER_OPEN_US;
 unsigned long lastServoMs = 0;
 
 // ~~~~~~~~~~~~~~~~~~~~~~ NEOPIXELS VALUES ~~~~~~~~~~~~~~~~~~~~~~
@@ -264,6 +265,7 @@ const int BACK_LEFT = 0;
 const int BACK_RIGHT = 1;
 
 // light colors
+// names GREEN, RED, and BLUE represent the RGB values these constants have to be placed in, not the color that they will produce
 #define LED_COLOR_OFF 0
 #define LED_FORWARD_GREEN 150
 #define LED_BACKWARD_RED 150
@@ -324,28 +326,49 @@ void setup() {
 
 void loop() {
     Serial.println("========NEW LOOP========");
+    raceLogic();
+}
 
+void raceLogic() {
     gripperUpdate();
     updateLineSensors();
 
-    // Calibrate line sensors if not already done, start logic if robot sees
-    // something from 20-25 cm away from it, wait 3 seconds, then start.
-    if (!lineSensorsCalibrated) {
-        openGripper();
-        bool raceStart = false;
+    // raceStartLogic only runs at the start of the race
+    raceStartLogic();
+    // this function decides between running maze logic or line follower
+    lineFollowOrMazeLogicDecision();
+}
 
-        // Wait for token to be seen, then start auto calibration
-        while (raceStart == false) {
-            // Turns true if the token is within the correct distance range
-            // from the ultrasound sensor
-            raceStart = getStartCondition();
-        }
+void lineFollowOrMazeLogicDecision() {
+    // See if the sensor sees any black lines first, and skip maze logic
+    if (isLineDetected()) {
+        Serial.println("Line Detected, running followTheLine()");
+        followTheLine();
+    } else {
+        runMazeLogic();
+    }
 
-        // Wait 3 seconds for other robot to drop token and move out of the way
-        Serial.println(F("RACE START = TRUE, WAITING 3S, CALIBRATING SENSORS"));
-        waitMs(MS_WAIT_AFTER_SEEING_CONE);
+    stopMotors();
+}
 
-        // Wait until robot is on all white sensors, and then start calibrating
+void grabConeAndEnterMaze() {
+    // After calibration is complete, go into the maze
+    // Move forward until all black, then keep moving forward until all
+    // white, this is to go just over the black square, and then grab the token
+    driveForwardUntilAllBlack();
+    driveForwardUntilAllWhite();
+    closeGripper();
+
+    // Move back a bit, turn right, and go into the maze
+    moveBackwardCm(INITIAL_BACKUP_AFTER_GRAB_CM);
+    turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
+    moveForwardCm(INITIAL_MOVE_INTO_MAZE_CM);
+    lineSensorsCalibrated = true;
+    Serial.println(F("CALIBRATING SENSORS DONE"));
+}
+
+void calibrateSensors() {
+    // Wait until robot is on all white sensors, and then start calibrating
         while (!allSensorsWhite()) {
             gripperUpdate();
             stopMotors();
@@ -366,30 +389,35 @@ void loop() {
             // Drive forward to next white
             driveForwardUntilAllWhite();
         }
+}
 
-        // After calibration is complete, go into the maze
-        Serial.println(F("Moving forward extra cm"));
+void raceStartLogic() {
+    // Calibrate line sensors if not already done, start logic if robot sees
+    // something from 20-25 cm away from it, wait 3 seconds, then start.
+    if (!lineSensorsCalibrated) {
+        openGripper();
+        bool raceStart = false;
 
-        // Move forward until all black, then keep moving forward until all
-        // white, this is to go just over the black square, and then grab the token
-        driveForwardUntilAllBlack();
-        driveForwardUntilAllWhite();
-        closeGripper();
+        // Wait for token to be seen, then start auto calibration
+        while (raceStart == false) {
+            // Turns true if the token is within the correct distance range
+            // from the ultrasound sensor
+            raceStart = getStartCondition();
+        }
 
-        // Move back a bit, turn right, and go into the maze
-        moveBackwardCm(INITIAL_BACKUP_AFTER_GRAB_CM);
-        turnLeftForwardTicksWithDeadEnd(TURN_90_TARGET_TICKS, false);
-        moveForwardCm(INITIAL_MOVE_INTO_MAZE_CM);
-        lineSensorsCalibrated = true;
-        Serial.println(F("CALIBRATING SENSORS DONE"));
+        // Wait 3 seconds for other robot to drop token and move out of the way
+        Serial.println(F("RACE START = TRUE, WAITING 3S, CALIBRATING SENSORS"));
+        waitMs(MS_WAIT_AFTER_SEEING_CONE);
+
+        calibrateSensors();
+        grabConeAndEnterMaze();
+        
     }
+}
 
-    // See if the sensor sees any black lines first, and skip maze logic
-    if (isLineDetected()) {
-        Serial.println("Line Detected, running followTheLine()");
-        followTheLine();
-    } else {
-        // Average of 3 readings, constrained
+
+void runMazeLogic() {
+    // Average of 3 readings, constrained
         float frontDistance = getAverageDistanceFront();
         float leftDistance = getAverageDistanceLeft();
         float rightDistance = getAverageDistanceRight();
@@ -402,10 +430,8 @@ void loop() {
         Serial.println(rightDistance);
 
         bool isWallOnLeft = leftDistance < WALL_DISTANCE_SIDE && leftDistance > 0;
-        bool isWallOnRight =
-            rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0;
-        bool isWallForward =
-            frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0;
+        bool isWallOnRight = rightDistance < WALL_DISTANCE_SIDE && rightDistance > 0;
+        bool isWallForward = frontDistance < WALL_DISTANCE_FRONT && frontDistance > 0;
 
         Serial.print(F("isWallOnLeft = "));
         Serial.println(isWallOnLeft);
@@ -417,7 +443,7 @@ void loop() {
         // Only keep correct distance from the left wall if there IS a left wall
         if (isWallOnLeft) {
             // Left wall correction
-            // If very far from left wall, turn right a lot
+            // If very far from left wall, turn left a lot
             if (leftDistance > FOLLOW_LEFT_WALL_VERY_VERY_FAR) {
                 turnLeftForwardTicksWithDeadEnd(
                     LEFT_WALL_ADJUST_LARGE_TICKS,
@@ -439,10 +465,8 @@ void loop() {
                     false
                 );
             } else if (
-                leftDistance >= FOLLOW_LEFT_WALL_IDEAL -
-                                FOLLOW_LEFT_WALL_IDEAL_TOLERANCE &&
-                leftDistance <= FOLLOW_LEFT_WALL_IDEAL +
-                                FOLLOW_LEFT_WALL_IDEAL_TOLERANCE
+                leftDistance >= FOLLOW_LEFT_WALL_IDEAL - FOLLOW_LEFT_WALL_IDEAL_TOLERANCE
+                && leftDistance <= FOLLOW_LEFT_WALL_IDEAL + FOLLOW_LEFT_WALL_IDEAL_TOLERANCE
             ) {
                 Serial.print(
                     F("ADJUSTMENT: ideal distance from left wall, adjustment skipped ")
@@ -512,11 +536,10 @@ void loop() {
 
             // Only shorten the forward move if both sides are not extremely close
             if (
-                frontDistance > 0 &&
-                frontDistance <
-                    (MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT + moveCm) &&
-                leftDistance > FORWARD_OPEN_SIDE_CLEARANCE_CM &&
-                rightDistance > FORWARD_OPEN_SIDE_CLEARANCE_CM
+                frontDistance > 0
+                && frontDistance < (MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT + moveCm + DISTANCE_SAFETY_MARGIN_CM) 
+                && leftDistance > FORWARD_OPEN_SIDE_CLEARANCE_CM
+                && rightDistance > FORWARD_OPEN_SIDE_CLEARANCE_CM
             ) {
                 moveCm = FORWARD_OPEN_SHORT_MOVE_CM;
                 Serial.println(F("FORWARD OPEN BUT CLOSE, SHORTENING MOVE TO: "));
@@ -545,7 +568,4 @@ void loop() {
                 F("Wall left and forward, Going forward, right, and then forward")
             );
         }
-    }
-
-    stopMotors();
 }

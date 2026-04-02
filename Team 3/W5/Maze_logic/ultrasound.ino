@@ -1,5 +1,6 @@
 // ~~~~~~~~~~~~~~~~~~~~~~ ULTRASOUND SENSORS FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
 float getDistance(int trigPin, int echoPin) {
+    // send a high pulse and set trigger back to low after the pulse
     digitalWrite(trigPin, LOW);
     delayMicroseconds(ULTRASOUND_TRIGGER_SETTLE_US);
 
@@ -15,12 +16,13 @@ float getDistance(int trigPin, int echoPin) {
         return NO_DISTANCE_READING;
     }
 
+    // If valid reading, return the distance in centimeters
     float distance = duration * ULTRASOUND_US_TO_CM;
 
     return distance;
 }
 
-// Gets the average of the read distance from the sensor "amount" amount of times
+// Gets the average of the getDistance from the sensor "amount" amount of times
 float getAverageDistance(int trigPin, int echoPin, int amount) {
     if (amount <= 0) {
         return NO_DISTANCE_READING;
@@ -37,7 +39,7 @@ float getAverageDistance(int trigPin, int echoPin, int amount) {
         float distance = getDistance(trigPin, echoPin);
 
         // used to be < ULTRASOUND_MAX_VALID_DISTANCE, but this can cause weird behaviour and make the robot think 
-        // sensors are failing when in reality they're seeing the open space at the end of the maze
+        // sensors are failing when in reality they're seeing the open space at the end of the maze, so now the max value is a valid reading
         if (distance > 0 && distance <= ULTRASOUND_MAX_VALID_DISTANCE_CM) {
             sum += distance;
             validCount++;
@@ -74,9 +76,6 @@ float getAverageDistanceWithRetry(int trigPin, int echoPin) {
         failedTimesInARow++;
     }
 
-    // Serial.println(F("ULTRASOUND FAILED TOO MANY TIMES, MOVING BACKWARD"));
-    // moveBackwardCm(ULTRASOUND_SENSOR_FAIL_RECOVERY_CM);
-
     return NO_DISTANCE_READING;
 }
 
@@ -84,7 +83,8 @@ float getAverageDistanceFront() {
     float distance = getAverageDistanceWithRetry(TRIG_FRONT, ECHO_FRONT);
 
     if (distance == NO_DISTANCE_READING) {
-      // used to be return NO_DISTANCE_READING for all of these getAverageDistance functions
+      // used to be return NO_DISTANCE_READING for all of these getAverageDistance functions, but now, 
+      // if there's no distance reading, assume it's the max distance
         return ULTRASOUND_MAX_VALID_DISTANCE_CM;
     }
 
@@ -128,22 +128,11 @@ bool getStartCondition() {
     Serial.println(F("getStartCondition sensor reading: "));
     Serial.print(distance);
 
-    if (
+    return (
         distance < START_CONDITION_MAX_DISTANCE &&
         distance > START_CONDITION_MIN_DISTANCE
-    ) {
-        return true;
-    } else {
-        return false;
-    }
+    );
 }
-
-// bool isTooCloseToFrontWallForTurnLeftOrRight() {
-//     return (
-//         getAverageDistanceFront() <= MAX_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT &&
-//         getAverageDistanceFront() >= MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT
-//     );
-// }
 
 bool isTooCloseToFrontWallForTurnLeftOrRight() {
     float frontDistance = getAverageDistanceFront();
@@ -153,10 +142,6 @@ bool isTooCloseToFrontWallForTurnLeftOrRight() {
         frontDistance >= MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT
     );
 }
-
-// bool cannotBeCloserToWallForTurnLeftOrRight() {
-//     return getAverageDistanceFront() <= MIN_DISTANCE_FRONT_LIMIT_TO_TURN_LEFT_OR_RIGHT;
-// }
 
 bool cannotBeCloserToWallForTurnLeftOrRight() {
     float frontDistance = getAverageDistanceFront();

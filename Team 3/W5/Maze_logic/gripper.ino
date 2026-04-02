@@ -25,7 +25,7 @@ void closeGripper() {
     gripperPulseUs = GRIPPER_CLOSE_US;
 }
 
-// Replace ALL delay(ms) with this (keeps servo powered during waits)
+// This function keeps the servo powered, and should be used instead of delay
 void waitMs(unsigned long ms) {
     unsigned long start = millis();
 

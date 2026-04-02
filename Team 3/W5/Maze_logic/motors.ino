@@ -14,7 +14,7 @@ void leftEncoderInterrupt() {
     unsigned long currentTime = micros();
 
     if (currentTime - lastLeftEdgeTime >= MINIMUM_EDGE_TIME_US) {
-        leftTickCount = leftTickCount + 1;
+        leftTickCount++;
         lastLeftEdgeTime = currentTime;
     }
 }
@@ -24,7 +24,7 @@ void rightEncoderInterrupt() {
     unsigned long currentTime = micros();
 
     if (currentTime - lastRightEdgeTime >= MINIMUM_EDGE_TIME_US) {
-        rightTickCount = rightTickCount + 1;
+        rightTickCount++;
         lastRightEdgeTime = currentTime;
     }
 }
@@ -132,13 +132,11 @@ void correctMotorSpeeds(int leftBaseSpeed, int rightBaseSpeed, int direction) {
     // See how much the wheel rotations have differed
     int difference = getRightTicks() - getLeftTicks();
 
-    // If left is going faster, this returns a negative number
-
-    // Multiplied difference (difference between ticks * X) is the difference
-    // that will be written to PWM
+    // If left is going faster, this returns a negative number, if right is going faster, it returns a positive number
+    // Multiplied difference (difference between ticks * X) is the difference that will be written to PWM
     difference = difference * MOTOR_ENCODER_CORRECTION_GAIN;
 
-    // Slow down right and speed up left (because right is the stronger motor)
+    // depending on value returned, one motor gets sped up, and one gets slowed down
     int leftSpeed = leftBaseSpeed + difference;
     int rightSpeed = rightBaseSpeed - difference;
 
@@ -164,6 +162,7 @@ void correctMotorSpeeds(int leftBaseSpeed, int rightBaseSpeed, int direction) {
 
 // Move forward a given distance in centimeters
 void moveForwardCm(float distanceCm) {
+    // convert target distance cm to ticks
     unsigned long targetTicks = roundFloatToInt(distanceCm * TICKS_PER_CM);
 
     if (targetTicks <= 0) {
@@ -179,11 +178,13 @@ void moveForwardCm(float distanceCm) {
     while (true) {
         gripperUpdate();
 
+        // followTheLine interrupt if robot sees black on any sensor
         if (lineSensorsCalibrated && handleLineInterrupt()) {
             followTheLine();
             return;
         }
 
+        // Correct motor speeds
         unsigned long leftValue = getLeftTicks();
         unsigned long rightValue = getRightTicks();
         unsigned long averageTicks = (leftValue + rightValue) / 2;
@@ -193,6 +194,7 @@ void moveForwardCm(float distanceCm) {
             DIRECTION_FORWARD
         );
 
+        // End if average ticks between left and right motor exceed target ticks
         if (averageTicks >= targetTicks) {
             break;
         }
@@ -242,8 +244,8 @@ void moveBackwardCm(float distanceCm) {
         unsigned long rightValue = getRightTicks();
         unsigned long averageTicks = (leftValue + rightValue) / 2;
         correctMotorSpeeds(
-            LEFT_FORWARD_SPEED,
-            RIGHT_FORWARD_SPEED,
+            LEFT_BACKWARD_SPEED,
+            RIGHT_BACKWARD_SPEED,
             DIRECTION_BACKWARD
         );
 

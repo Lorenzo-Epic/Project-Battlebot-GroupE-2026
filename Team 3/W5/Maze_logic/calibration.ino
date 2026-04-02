@@ -1,21 +1,8 @@
 // ~~~~~~~~~~~~~~~~~~~~~~ AUTO-CALIBRATION FUNCTIONS ~~~~~~~~~~~~~~~~~~~~~~
-// Apply calibration
+// Apply calibration to one sensor based on it's weight, and constrain the result 
 int applyLightSensorCalibration(int raw, int sensorIndex) {
     int v = raw + weights[sensorIndex];
     return constrain(v, LIGHT_SENSORS_MIN_READING, LIGHT_SENSORS_MAX_READING);
-}
-
-// Hysteresis logic
-bool isBlack(int sensorIndex) {
-    int raw = analogRead(LINE_SENSOR_PINS[sensorIndex]);
-    int calibrated = applyLightSensorCalibration(raw, sensorIndex);
-    return calibrated > LIGHT_SENSOR_BLACK_THRESHOLD;
-}
-
-bool isWhite(int sensorIndex) {
-    int raw = analogRead(LINE_SENSOR_PINS[sensorIndex]);
-    int calibrated = applyLightSensorCalibration(raw, sensorIndex);
-    return calibrated < LIGHT_SENSOR_WHITE_THRESHOLD;
 }
 
 bool allSensorsBlack() {
@@ -71,12 +58,13 @@ void driveForwardUntilAllWhite() {
     stopMotors();
 }
 
-// Reading light sensors and logging SENSOR_SAMPLES_AMOUNT times into array
+// Read all sensors once and store this set of readings in the log. at sensorLog[sensorIndex][sampleIndex]
 void readLightSensorsAndLog() {
     if (logFull) {
         return;
     }
 
+// gets one sensor reading per sensor and writes into the current logIndex
     for (int i = 0; i < NUM_SENSORS; i++) {
         int raw = analogRead(LINE_SENSOR_PINS[i]);
         sensorLog[i][logIndex] = raw;
@@ -84,62 +72,70 @@ void readLightSensorsAndLog() {
 
     logIndex++;
 
+// Check if log is full, if so, set the boolean logFull to true
     if (logIndex >= SENSOR_SAMPLES_AMOUNT) {
         logFull = true;
         logIndex = SENSOR_SAMPLES_AMOUNT - 1;
     }
 }
 
+
+// Collect several calibration runs for either white or black, then update the saved average values for each sensor.
 void getAvgBlackOrWhite(int blackOrWhite) {
-    // 1 is white, 2 is black
-
     // Take multiple runs and accumulate
-    for (int run = 0; run < CALIB_RUNS; run++) {
-        resetLog();
-
-        while (!logFull) {
-            readLightSensorsAndLog();
-            gripperUpdate();
-        }
-
-        // Compute this run's averages and add to sums
-        for (int i = 0; i < NUM_SENSORS; i++) {
-            long sum = 0;
-
-            for (int g = 0; g < SENSOR_SAMPLES_AMOUNT; g++) {
-                sum += sensorLog[i][g];
-            }
-
-            float avg = (float)sum / (float)SENSOR_SAMPLES_AMOUNT;
-
-            // Adds average to white or black sum respectively
-            if (blackOrWhite == WHITE) {
-                whiteSum[i] += avg;
-            } else {
-                blackSum[i] += avg;
-            }
-        }
+    for (int run = 0; run < SENSOR_SAMPLES_AMOUNT; run++) {
+        collectAndStoreOneCalibrationRun(blackOrWhite);
     }
+    // calculate the accumulated runs into average valyes
+    updateCalibrationAverages(blackOrWhite);
 
-    // Finalize the averages from accumulated sums
-    long totalAverage = 0;
+    // increment to track how many runs have been used to calculate the averages
+    if (blackOrWhite == WHITE) {
+        whiteRuns += SENSOR_SAMPLES_AMOUNT;
+    } else {
+        blackRuns += SENSOR_SAMPLES_AMOUNT;
+    }
+}
+
+void collectAndStoreOneCalibrationRun(int blackOrWhite) {
+    resetLog();
+
+    // fill up log with sensor readings
+    while (!logFull) {
+        readLightSensorsAndLog();
+        gripperUpdate();
+    }
 
     for (int i = 0; i < NUM_SENSORS; i++) {
+        long sum = 0;
+        // sum up all sensor readings per sensor
+        for (int g = 0; g < SENSOR_SAMPLES_AMOUNT; g++) {
+            sum += sensorLog[i][g];
+        }
+        // Average of this sensor's samples during this one run.
+        float avg = (float)sum / (float)SENSOR_SAMPLES_AMOUNT;
+
+        // add this run to the sum array
         if (blackOrWhite == WHITE) {
-            whiteAvg[i] = whiteSum[i] / (float)(whiteRuns + CALIB_RUNS);
-            totalAverage += (long)whiteAvg[i];
+            whiteSum[i] += avg;
         } else {
-            blackAvg[i] = blackSum[i] / (float)(blackRuns + CALIB_RUNS);
-            totalAverage += (long)blackAvg[i];
+            blackSum[i] += avg;
         }
     }
+}
 
-    if (blackOrWhite == WHITE) {
-        whiteRuns += CALIB_RUNS;
-        whiteAvgTotalAverage = totalAverage / NUM_SENSORS;
-    } else {
-        blackRuns += CALIB_RUNS;
-        blackAvgTotalAverage = totalAverage / NUM_SENSORS;
+// Convert the accumulated sums into average values for each sensor.
+void updateCalibrationAverages(int blackOrWhite) {
+    // float totalAverage = 0;
+    // Accumulates all the per-run average sums into one final average across all runs collected so far per sensor
+    for (int i = 0; i < NUM_SENSORS; i++) {
+        if (blackOrWhite == WHITE) {
+            // Average white reading of sensor i across all white runs collected so far.
+            whiteAvg[i] = whiteSum[i] / (float)(whiteRuns + SENSOR_SAMPLES_AMOUNT);
+        } else {
+            // Average black reading of sensor i across all black runs collected so far.
+            blackAvg[i] = blackSum[i] / (float)(blackRuns + SENSOR_SAMPLES_AMOUNT);
+        }
     }
 }
 
@@ -150,23 +146,11 @@ void resetLog() {
 }
 
 void calculateLightSensorsCalibration() {
-    long midPoint = (whiteAvgTotalAverage + blackAvgTotalAverage) / 2;
-
     // Per-sensor calibration (each sensor gets its own weight)
     for (int i = 0; i < NUM_SENSORS; i++) {
+        // For each sensior, find the midpoint between it's average white reading and black reading
         long sensorMidPoint = (long)((whiteAvg[i] + blackAvg[i]) / 2.0f);
+        // see how far sensor midpoint is from TARGET_AVG, that value becomes the final calibration weight
         weights[i] = (int)(TARGET_AVG - sensorMidPoint);
     }
-
-    Serial.print(F("Calibration values: {"));
-
-    for (int i = 0; i < NUM_SENSORS; i++) {
-        Serial.print(weights[i]);
-
-        if (i < NUM_SENSORS - 1) {
-            Serial.print(F(", "));
-        }
-    }
-
-    Serial.print(F("}\n"));
 }
