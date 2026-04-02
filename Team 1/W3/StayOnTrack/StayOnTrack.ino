@@ -10,7 +10,7 @@ int sensorVal = 0;
 int newLeftSpeed;
 int newRightSpeed;
 
-float ancoefficient = 2.6; //THE ANDRII COEFFICIENT
+float ancoefficient = 2.6; //THE ANDRII COEFFICIENT - thank you andrii :)
 
 #define MOTOR_A_FW 10  //A1 to D10, this is motor A forwards
 #define MOTOR_A_BW 9   //A2 to D9, this is motor A backwards
@@ -36,24 +36,6 @@ void setup() {
 }
 
 void loop() {
-  // sensorVal = 0;
-  // for (int i = 0; i < 8; i++) {
-  //   int val = analogRead(sensorPins[i]);
-  //   //Serial.print(val);
-  //   //Serial.print("\t");
-  //   if (val > sensorThreshold) {
-  //     sensorVal = sensorWeights[i];
-  //   //  Serial.print(1);
-  //   //  Serial.print("\t");
-  //   } else {
-  //   //  Serial.print(0);
-  //   //  Serial.print("\t");
-  //   }
-  // }
-
-  //Serial.print(sensorVal);
-  //Serial.println();
-
   sensorVal = sensorReading();
 
   if (sensorVal != 0) {
@@ -61,11 +43,6 @@ void loop() {
   }
 
   motorCalc(lastDestination);
-
-  // Serial.print(newLeftSpeed);
-  // Serial.print("\t");
-  // Serial.println(newRightSpeed);
-
   moveForwardsNoStop();
 }
 
@@ -85,11 +62,8 @@ int sensorReading() {
 void motorCalc(int lastDestination) {
   int sensorVal = sensorReading();
 
-//if check value for sensorval ---> 0 means all white
-//use lastdestination to decide where to look for line... x>0 means look right, x<0 means look left
-
-  if (sensorVal == 0) {
-    if (lastDestination < 150) {
+  if (sensorVal == 0) { //checking value for sensorVal -> 0 means all white
+    if (lastDestination > 150) { //if lastDestination was to the right -> turn right first
       analogWrite(MOTOR_A_FW, 200);
       analogWrite(MOTOR_B_FW, 0);
 
@@ -98,7 +72,7 @@ void motorCalc(int lastDestination) {
       delay(20);
     }
     
-    else if (lastDestination < -150) { 
+    else if (lastDestination < -150) { //if lastDestination was to the left -> turn left first
       analogWrite(MOTOR_A_FW, 0);
       analogWrite(MOTOR_B_FW, 200);
 
