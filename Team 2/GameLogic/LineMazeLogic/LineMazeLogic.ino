@@ -24,22 +24,22 @@ const int ECHO_PIN = 12;
 int sensorPins[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
 
 // ================= SPEED SETTINGS =================
-const int BASE_SPEED = 205;
-const int TURN_SPEED = 200;
-const int SEARCH_SPEED = 200;
-const int APPROACH_SPEED = 190;
+const int BASE_SPEED = 210;
+const int TURN_SPEED = 210;
+const int SEARCH_SPEED = 210;
+const int APPROACH_SPEED = 210;
 const int LINE_TH = 800;
 
 // ================= FINISH SETTINGS =================
-const int FINISH_SLOW_SPEED = 160;
-const unsigned long FINISH_CHECK_TIME = 500;
+const int FINISH_SLOW_SPEED = 200;
+const unsigned long FINISH_CHECK_TIME = 400;
 
 // ================= DISTANCE/TIME SETTINGS =================
 const int OBJECT_DETECT_DISTANCE = 30;
 const unsigned long APPROACH_TIME = 2000;
 const unsigned long BACK_TIME = 3000;
-const unsigned long LEFT_TURN_90_TIME = 800;
-const unsigned long FORWARD_AFTER_GRAB_TIME = 480;
+const unsigned long LEFT_TURN_90_TIME = 1000;
+const unsigned long FORWARD_AFTER_GRAB_TIME = 400;
 
 // ================= OBSTACLE SETTINGS =================
 const int OBSTACLE_DISTANCE = 10;
@@ -79,29 +79,29 @@ void ledsBaseGreen() {
 
 void ledsForward() {
   ledsBaseGreen();
-  strip.setPixelColor(3, strip.Color(255, 0, 0)); // перед лев
-  strip.setPixelColor(2, strip.Color(255, 0, 0)); // перед прав
+  strip.setPixelColor(3, strip.Color(200, 0, 0)); 
+  strip.setPixelColor(2, strip.Color(200, 0, 0)); 
   strip.show();
 }
 
 void ledsBack() {
   ledsBaseGreen();
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад прав
-  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад лев
+  strip.setPixelColor(0, strip.Color(200, 0, 0)); 
+  strip.setPixelColor(1, strip.Color(200, 0, 0)); 
   strip.show();
 }
 
 void ledsLeft() {
   ledsBaseGreen();
-  strip.setPixelColor(3, strip.Color(255, 0, 0)); // перед лев
-  strip.setPixelColor(0, strip.Color(255, 0, 0)); // зад лев
+  strip.setPixelColor(3, strip.Color(200, 0, 0)); 
+  strip.setPixelColor(0, strip.Color(200, 0, 0)); 
   strip.show();
 }
 
 void ledsRight() {
   ledsBaseGreen();
-  strip.setPixelColor(2, strip.Color(255, 0, 0)); // перед прав
-  strip.setPixelColor(1, strip.Color(255, 0, 0)); // зад прав
+  strip.setPixelColor(2, strip.Color(200, 0, 0)); 
+  strip.setPixelColor(1, strip.Color(200, 0, 0)); 
   strip.show();
 }
 
@@ -171,8 +171,8 @@ void pivotLeft() {
   ledsLeft();
 
   analogWrite(LEFT_FWD, 0);
-  analogWrite(LEFT_BWD, constrain(BASE_SPEED + 20, 0, 255));
-  analogWrite(RIGHT_FWD, BASE_SPEED);
+  analogWrite(LEFT_BWD, TURN_SPEED);
+  analogWrite(RIGHT_FWD, 0);
   analogWrite(RIGHT_BWD, 0);
 }
 
@@ -336,7 +336,7 @@ void finishStop() {
   delayWithGripper(200);
 
   gripperOpen();
-  delayWithGripper(700);
+  delayWithGripper(400);
 
   stopMotors();
   delayWithGripper(400);
@@ -563,4 +563,5 @@ void loop() {
       stopMotors();
       break;
   }
+  
 }
